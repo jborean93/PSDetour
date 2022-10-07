@@ -17,7 +17,7 @@ $CSharpPath = [IO.Path]::Combine($PSScriptRoot, 'src')
 $ReleasePath = [IO.Path]::Combine($BuildPath, $ModuleName, $Version)
 $IsUnix = $PSEdition -eq 'Core' -and -not $IsWindows
 
-[xml]$csharpProjectInfo = Get-Content ([IO.Path]::Combine($CSharpPath, '*.csproj'))
+[xml]$csharpProjectInfo = Get-Content ([IO.Path]::Combine($CSharpPath, $ModuleName, '*.csproj'))
 $TargetFrameworks = @($csharpProjectInfo.Project.PropertyGroup.TargetFrameworks.Split(
         ';', [StringSplitOptions]::RemoveEmptyEntries))
 
@@ -40,30 +40,28 @@ task BuildDocs {
 }
 
 task BuildManaged {
-    Push-Location -Path $CSharpPath
-    $arguments = @(
-        'publish'
-        '--configuration', $Configuration
-        '--verbosity', 'q'
-        '-nologo'
-        "-p:Version=$Version"
-        # On a compiler failure a background dotnet process continues to live on keeping the user profile open.
-        # The ElevatePrivileges.ps1 runner requires everything to have finished for it to complete so disabling this
-        # will ensure dotnet doesn't have any lingering child processes.
-        "-p:UseSharedCompilation=false"
-    )
-    try {
-        foreach ($framework in $TargetFrameworks) {
-            Write-Host "Compiling for $framework"
-            dotnet @arguments --framework $framework
+    Get-ChildItem -LiteralPath $CSharpPath -Directory | ForEach-Object -Process {
+        $_ | Push-Location
+        $arguments = @(
+            'publish'
+            '--configuration', $Configuration
+            '--verbosity', 'q'
+            '-nologo'
+            "-p:Version=$Version"
+        )
+        try {
+            foreach ($framework in $TargetFrameworks) {
+                Write-Host "Compiling $($_.Name) for $framework"
+                dotnet @arguments --framework $framework
 
-            if ($LASTEXITCODE) {
-                throw "Failed to compiled code for $framework"
+                if ($LASTEXITCODE) {
+                    throw "Failed to compiled code for $framework"
+                }
             }
         }
-    }
-    finally {
-        Pop-Location
+        finally {
+            Pop-Location
+        }
     }
 }
 
@@ -76,13 +74,17 @@ task CopyToRelease {
     }
     Copy-Item @copyParams
 
+    $nativeBuildFolder = [IO.Path]::Combine($CSharpPath, "$($ModuleName)Native", 'bin', $Configuration, 'final')
+
     foreach ($framework in $TargetFrameworks) {
-        $buildFolder = [IO.Path]::Combine($CSharpPath, 'bin', $Configuration, $framework, 'publish')
+        $buildFolder = [IO.Path]::Combine($CSharpPath, $ModuleName, 'bin', $Configuration, $framework, 'publish')
         $binFolder = [IO.Path]::Combine($ReleasePath, 'bin', $framework)
         if (-not (Test-Path -LiteralPath $binFolder)) {
             New-Item -Path $binFolder -ItemType Directory | Out-Null
         }
         Copy-Item ([IO.Path]::Combine($buildFolder, "*")) -Destination $binFolder
+
+        Copy-Item ([IO.Path]::Combine($nativeBuildFolder, '*.dll')) -Destination $binFolder
     }
 }
 
@@ -229,7 +231,7 @@ task DoTest {
         $unitCoveragePath = [IO.Path]::Combine($resultsPath, 'UnitCoverage.json')
 
         $arguments = @(
-            '"{0}"' -f ([IO.Path]::Combine($ReleasePath, 'bin', $PSFramework))
+            '"{0}"' -f ([IO.Path]::Combine($ReleasePath, $ModuleName, 'bin', $PSFramework))
             '--target', $pwsh
             '--targetargs', (($arguments -join " ") -replace '"', '\"')
             '--output', ([IO.Path]::Combine($resultsPath, 'Coverage.xml'))

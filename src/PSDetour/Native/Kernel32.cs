@@ -37,6 +37,44 @@ namespace PSDetour.Native
             return thread;
         }
 
+        [DllImport("Kernel32.dll", EntryPoint = "DuplicateHandle", SetLastError = true)]
+        private static extern bool NativeDuplicateHandle(
+            SafeHandle hSourceProcessHandle,
+            SafeHandle hSourceHandle,
+            SafeHandle hTargetProcessHandle,
+            out IntPtr lpTargetHandle,
+            UInt32 dwDesiredAccess,
+            bool bInheritHandle,
+            DuplicateHandleOptions dwOptions);
+
+        public static SafeDuplicateHandle DuplicateHandle(SafeHandle sourceProcess, SafeHandle sourceHandle,
+            SafeHandle? targetProcess, UInt32 access, bool inherit, DuplicateHandleOptions options,
+            bool ownsHandle)
+        {
+            if (targetProcess == null)
+            {
+                targetProcess = new SafeNativeHandle(IntPtr.Zero, false);
+                // If closing the duplicate then mark the returned handle so it doesn't try to close itself again.
+                ownsHandle = (options & DuplicateHandleOptions.CloseSource) == 0;
+            }
+
+            if (!NativeDuplicateHandle(sourceProcess, sourceHandle, targetProcess, out var dup, access, inherit,
+                options))
+            {
+                throw new Win32Exception();
+            }
+
+            return new SafeDuplicateHandle(dup, targetProcess, ownsHandle);
+        }
+
+        [DllImport("Kernel32.dll", EntryPoint = "GetCurrentProcess")]
+        private static extern IntPtr NativeGetCurrentProcess();
+
+        public static SafeNativeHandle GetCurrentProcess()
+        {
+            return new SafeNativeHandle(NativeGetCurrentProcess(), false);
+        }
+
         [DllImport("Kernel32.dll", EntryPoint = "GetExitCodeThread", SetLastError = true)]
         private static extern bool NativeGetExitCodeThread(
             SafeNativeHandle hThread,
@@ -214,6 +252,16 @@ namespace PSDetour.Native
 
             return (int)written;
         }
+    }
+
+    [Flags]
+    internal enum DuplicateHandleOptions : uint
+    {
+        None = 0x0000000,
+        /// DUPLICATE_CLOSE_SOURCE
+        CloseSource = 0x00000001,
+        /// DUPLICATE_SAME_ACCESS
+        SameAccess = 0x00000002,
     }
 
     [Flags]
@@ -405,6 +453,33 @@ namespace PSDetour.Native
         CreateSuspended = 0x00000004,
         /// STACK_SIZE_PARAM_IS_A_RESERVATION
         StackSizeParamIsAReservation = 0x00010000,
+    }
+
+    internal class SafeDuplicateHandle : SafeHandleZeroOrMinusOneIsInvalid
+    {
+        private readonly SafeHandle _process;
+        private readonly bool _ownsHandle;
+
+        public SafeDuplicateHandle(IntPtr handle, SafeHandle process) : this(handle, process, true) { }
+
+        public SafeDuplicateHandle(IntPtr handle, SafeHandle process, bool ownsHandle) : base(true)
+        {
+            SetHandle(handle);
+            _process = process;
+            _ownsHandle = ownsHandle;
+        }
+
+        protected override bool ReleaseHandle()
+        {
+            if (_ownsHandle)
+            {
+                // Cannot pass this as the handle to close as it appears as closed/invalid already. Just wrap it in
+                // a temp SafeHandle that is set not to dispose itself once done.
+                Kernel32.DuplicateHandle(_process, new SafeNativeHandle(handle, false), null, 0, false,
+                    DuplicateHandleOptions.CloseSource, false);
+            }
+            return true;
+        }
     }
 
     internal class SafeNativeHandle : SafeHandleZeroOrMinusOneIsInvalid
