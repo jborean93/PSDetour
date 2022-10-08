@@ -13,6 +13,14 @@
 
 typedef int(NETHOST_CALLTYPE *get_hostfxr_path_fn)(char_t *buffer, size_t *buffer_size, const struct get_hostfxr_parameters *parameters);
 
+struct worker_args_t
+{
+    const void *pipe_in;
+    const void *pipe_out;
+    const wchar_t *powershell_dir;
+    int powershell_dir_count;
+};
+
 namespace
 {
     HINSTANCE dll_module = nullptr;
@@ -28,7 +36,7 @@ namespace
     load_assembly_and_get_function_pointer_fn get_dotnet_load_assembly(const char_t *assembly);
 }
 
-extern "C" __declspec(dllexport) int inject(void *pipe)
+extern "C" __declspec(dllexport) int inject(worker_args_t *p_worker_args)
 {
     //
     // STEP 0: Get the current executable directory
@@ -73,20 +81,26 @@ extern "C" __declspec(dllexport) int inject(void *pipe)
     //
     std::filesystem::path dotnetlib_path{module_path};
     dotnetlib_path.replace_filename(L"PSDetour.dll");
-    component_entry_point_fn dotnet_main = nullptr;
+
+    typedef void(CORECLR_DELEGATE_CALLTYPE * custom_entry_point_fn)(worker_args_t args);
+    custom_entry_point_fn dotnet_main = nullptr;
     int rc = load_assembly_and_get_function_pointer(
         dotnetlib_path.c_str(),
         L"PSDetour.RemoteWorker, PSDetour",
         L"Main",
-        nullptr,
+        UNMANAGEDCALLERSONLY_METHOD,
         nullptr,
         (void **)&dotnet_main);
     assert(rc == 0 && dotnet_main != nullptr && "Failure: load_assembly_and_get_function_pointer()");
 
-    //
-    // STEP 4: Run managed code
-    //
-    return dotnet_main(pipe, sizeof(void *));
+    worker_args_t args{
+        p_worker_args->pipe_in,
+        p_worker_args->pipe_out,
+        p_worker_args->powershell_dir,
+        p_worker_args->powershell_dir_count};
+    dotnet_main(args);
+
+    return 0;
 }
 
 /********************************************************************************************

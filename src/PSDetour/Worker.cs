@@ -2,38 +2,67 @@ using Microsoft.Win32.SafeHandles;
 using System;
 using System.IO;
 using System.IO.Pipes;
-using System.Management.Automation;
-using System.Management.Automation.Runspaces;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Runtime.Loader;
 using System.Text;
 
-namespace PSDetour
+namespace PSDetour;
+
+[StructLayout(LayoutKind.Sequential)]
+public struct WorkerArgs
 {
-    public class RemoteWorker
+    public IntPtr PipeIn;
+    public IntPtr PipeOut;
+    public IntPtr PowerShellDir;
+    public int PowerShellDirCount;
+}
+
+public class RemoteWorker
+{
+    [UnmanagedCallersOnly]
+    public static void Main(WorkerArgs args)
     {
-        public static int Main(IntPtr arg, int sizeBytes)
+        string pwshDependencyDir = Marshal.PtrToStringUni(args.PowerShellDir, args.PowerShellDirCount) ?? "";
+
+        UTF8Encoding utf8Encoding = new UTF8Encoding();
+        using AnonymousPipeClientStream pipeIn = new AnonymousPipeClientStream(PipeDirection.In, new SafePipeHandle(args.PipeIn, false));
+        using StreamReader pipeReader = new StreamReader(pipeIn, utf8Encoding);
+
+        using AnonymousPipeClientStream pipeOut = new AnonymousPipeClientStream(PipeDirection.Out, new SafePipeHandle(args.PipeOut, false));
+        using StreamWriter sw = new StreamWriter(pipeOut, utf8Encoding);
+        sw.AutoFlush = true;
+        sw.WriteLine("connected");
+
+        PowerShellAssemblyResolver resolver = new(pwshDependencyDir);
+        AssemblyLoadContext.Default.Resolving += resolver.ResolvePwshDeps;
+
+        string cmdToRun = pipeReader.ReadLine() ?? "unknown";
+        string res = PowerShellRunner.Run(cmdToRun);
+        sw.WriteLine(res);
+
+        AssemblyLoadContext.Default.Resolving -= resolver.ResolvePwshDeps;
+    }
+}
+
+internal class PowerShellAssemblyResolver
+{
+    private readonly string _depPath;
+
+    public PowerShellAssemblyResolver(string depPath)
+    {
+        _depPath = depPath;
+    }
+
+    public Assembly? ResolvePwshDeps(AssemblyLoadContext defaultAlc, AssemblyName assemblyToResolve)
+    {
+        string assemblyPath = Path.Combine(_depPath, $"{assemblyToResolve.Name}.dll");
+
+        if (File.Exists(assemblyPath))
         {
-            UTF8Encoding utf8Encoding = new UTF8Encoding();
-            using AnonymousPipeClientStream pipeIn = new AnonymousPipeClientStream(PipeDirection.In, new SafePipeHandle(arg, false));
-            using StreamReader pipeReader = new StreamReader(pipeIn, utf8Encoding);
-            string clientPipeAddr = pipeReader.ReadLine() ?? "nothing";
-
-            IntPtr rawClientOutPtr = new IntPtr(Int64.Parse(clientPipeAddr));
-            using AnonymousPipeClientStream pipeOut = new AnonymousPipeClientStream(PipeDirection.Out, new SafePipeHandle(rawClientOutPtr, false));
-            using StreamWriter sw = new StreamWriter(pipeOut, utf8Encoding);
-            sw.AutoFlush = true;
-            sw.WriteLine("connected");
-
-            string scriptToRun = pipeReader.ReadLine() ?? "unknown command";
-            using Runspace rs = RunspaceFactory.CreateRunspace();
-            rs.Open();
-            using PowerShell ps = PowerShell.Create();
-            ps.Runspace = rs;
-            ps.AddScript(scriptToRun);
-            string cmdOut = ps.Invoke<string>()[0].ToString();
-
-            sw.WriteLine(cmdOut);
-
-            return 0;
+            return Assembly.LoadFrom(assemblyPath);
         }
+
+        return null;
     }
 }

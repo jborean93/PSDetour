@@ -3,13 +3,13 @@
   <PropertyGroup>
     <TargetFrameworks>net6.0</TargetFrameworks>
     <AssemblyName>PSDetour</AssemblyName>
-    <LangVersion>8.0</LangVersion>
+    <LangVersion>10.0</LangVersion>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnableDynamicLoading>true</EnableDynamicLoading>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="PowerShellStandard.Library" Version="5.1.0" PrivateAssets="all" />
+    <PackageReference Include="System.Management.Automation" Version="7.2.0" PrivateAssets="all" />
   </ItemGroup>
 </Project>
