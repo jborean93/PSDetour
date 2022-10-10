@@ -363,7 +363,7 @@ FodyWeavers.xsd
 
 ### Custom entries ###
 output/
-tools/*
+tools/Modules
 !tools/ElevatePrivileges.ps1
 !tools/PesterTest.ps1
 Inject/*.dll

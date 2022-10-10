@@ -8,7 +8,6 @@ using System.Management.Automation;
 using System.Management.Automation.Internal;
 using System.Management.Automation.Remoting;
 using System.Management.Automation.Remoting.Client;
-using System.Management.Automation.Remoting.Server;
 using System.Management.Automation.Runspaces;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
@@ -19,73 +18,35 @@ using System.Threading.Tasks;
 
 namespace PSDetour;
 
-// It's important this is a standalone class and doesn't inherit from anything
-// in S.M.A. By putting it in its own class the assembly resolver code in the
-// caller will be able to run.
-internal static class PSRemotingServer
+internal sealed class InjectedPipeClientSessionTransportManager : NamedPipeClientSessionTransportManagerBase
 {
-    internal static void Run(NamedPipeClientStream pipe)
-    {
-        UTF8Encoding utf8Encoding = new(false);
-        StreamReader inputReader = new(
-            pipe,
-            encoding: utf8Encoding,
-            detectEncodingFromByteOrderMarks: true,
-            bufferSize: -1,
-            leaveOpen: true);
-        StreamWriter outputWriter = new(pipe, encoding: utf8Encoding, bufferSize: -1, leaveOpen: true);
-        outputWriter.AutoFlush = true;
+    private const string _threadName = "PSDetour NamedPipeTransport Reader Thread";
 
-        InjectedPipeProcessMediator instance = new(inputReader, new OutOfProcessTextWriter(outputWriter));
-        instance.Run();
-    }
-}
-
-// OutOfProcessMediatorBase is internal in S.M.A 7.2.x but there is work in
-// 7.3.x to make public. This should be revisited later to avoid using internal
-// functionality if the server side bits become public.
-internal class InjectedPipeProcessMediator : OutOfProcessMediatorBase
-{
-    public InjectedPipeProcessMediator(TextReader inputPipe, OutOfProcessTextWriter outputPipe) : base(exitProcessOnError: false)
-    {
-        originalStdIn = inputPipe;
-        originalStdOut = outputPipe;
-        originalStdErr = outputPipe;
-    }
-
-    internal void Run()
-    {
-        Start(
-            initialCommand: null,
-            cryptoHelper: new PSRemotingCryptoHelperServer(),
-            workingDirectory: null,
-            configurationName: null);
-    }
-}
-
-// OutOfProcessClientSessionTransportManagerBase is insternal in S.M.A 7.2.x
-// but there is a generic client mechanism that can be used for custom
-// transports in 7.3.x which should be used when available.
-internal class InjectedPipeClientSessionTransportManager : OutOfProcessClientSessionTransportManagerBase
-{
-    private readonly InjectedPipeConnectionInfo _connInfo;
-
-    // Client side objects that live throughout the connection
-    private NamedPipeServerStream? _pipe = null;
-    private NamedPipeClientStream? _clientPipe = null;
+    private readonly InjectedPipeConnectionInfo _connectionInfo;
 
     // Pointers to remote process objects that need to be cleaned up at the end.
     private SafeProcessHandle? _remoteProcess = null;
-    private SafeDuplicateHandle? _remotePipe = null;
     private SafeRemoteLoadedLibrary? _psdetourNativeMod = null;
     private SafeRemoteMemory? _pwshAssemblyMem = null;
     private SafeRemoteMemory? _workerArgs = null;
     private SafeNativeHandle? _injectThread = null;
 
-    public InjectedPipeClientSessionTransportManager(InjectedPipeConnectionInfo connectionInfo, Guid runspaceId,
-        PSRemotingCryptoHelper cryptoHelper) : base(runspaceId, cryptoHelper)
+    public InjectedPipeClientSessionTransportManager(
+        InjectedPipeConnectionInfo connectionInfo,
+        Guid runspaceId,
+        PSRemotingCryptoHelper cryptoHelper)
+        : base(connectionInfo, runspaceId, cryptoHelper, _threadName)
     {
-        _connInfo = connectionInfo;
+        _connectionInfo = connectionInfo;
+    }
+
+    protected override void CleanupConnection()
+    {
+        base.CleanupConnection();
+        if (_injectThread != null)
+        {
+            Kernel32.WaitForSingleObject(_injectThread, Kernel32.INFINITE);
+        }
     }
 
     public override void CreateAsync()
@@ -96,7 +57,7 @@ internal class InjectedPipeClientSessionTransportManager : OutOfProcessClientSes
             ProcessAccessRights.VMOperation |
             ProcessAccessRights.VMRead |
             ProcessAccessRights.VMWrite;
-        _remoteProcess = Kernel32.OpenProcess(_connInfo.ProcessId, procRights, false);
+        _remoteProcess = Kernel32.OpenProcess(_connectionInfo.ProcessId, procRights, false);
 
         // Load PSDetourNative.dll in the target process
         _psdetourNativeMod = LoadRemoteLibrary(_remoteProcess, PSDetourNative.NativePath);
@@ -123,7 +84,7 @@ internal class InjectedPipeClientSessionTransportManager : OutOfProcessClientSes
         pipeSecurity.AddAccessRule(new(pipeUser, pipeRights, AccessControlType.Allow));
         string pipeName = $"PSDetour-{Guid.NewGuid()}";
 
-        _pipe = NamedPipeServerStreamAcl.Create(
+        using NamedPipeServerStream _pipe = NamedPipeServerStreamAcl.Create(
             pipeName,
             PipeDirection.InOut,
             1,
@@ -133,18 +94,18 @@ internal class InjectedPipeClientSessionTransportManager : OutOfProcessClientSes
             32768,
             pipeSecurity,
             HandleInheritability.None);
-        using (NamedPipeClientStream clientPipe = new(
+        using NamedPipeClientStream clientPipe = new(
             ".",
             pipeName,
             PipeDirection.InOut,
             PipeOptions.Asynchronous,
             TokenImpersonationLevel.Anonymous,
-            HandleInheritability.None))
-        {
-            clientPipe.Connect();
-            _pipe.WaitForConnection();
+            HandleInheritability.None);
 
-            _remotePipe = Kernel32.DuplicateHandle(
+        clientPipe.Connect();
+        _pipe.WaitForConnection();
+
+        using SafeDuplicateHandle _remotePipe = Kernel32.DuplicateHandle(
                 currentProcess,
                 clientPipe.SafePipeHandle,
                 _remoteProcess,
@@ -152,7 +113,8 @@ internal class InjectedPipeClientSessionTransportManager : OutOfProcessClientSes
                 false,
                 DuplicateHandleOptions.SameAccess,
                 true);
-        }
+
+        clientPipe.Dispose();
 
         // Build arg struct to remote process
         byte[] pwshAssemblyBytes = Encoding.Unicode.GetBytes(PSDetourNative.PwshAssemblyDir);
@@ -176,117 +138,47 @@ internal class InjectedPipeClientSessionTransportManager : OutOfProcessClientSes
 
         using (CancellationTokenSource cancelToken = new())
         {
-            //Task waitConnect = _pipe.WaitForConnectionAsync(cancelToken.Token);
-            //int res = Task.WaitAny(new[] { waitConnect }, _connInfo.OpenTimeout);
-
             byte[] tempBuffer = new byte[1];
             Task<int> readTask = _pipe.ReadAsync(tempBuffer, 0, 1, cancelToken.Token);
-            int res = Task.WaitAny(new[] { readTask }, _connInfo.OpenTimeout);
+            int res = Task.WaitAny(new[] { readTask }, _connectionInfo.OpenTimeout);
 
             if (res == -1)
             {
                 cancelToken.Cancel();
-                throw new TimeoutException($"Timeout while waiting for remote process {_connInfo.ProcessId} to connect");
+                throw new TimeoutException($"Timeout while waiting for remote process {_connectionInfo.ProcessId} to connect");
             }
 
-            //waitConnect.GetAwaiter().GetResult();
             readTask.GetAwaiter().GetResult();
         }
 
-        UTF8Encoding utf8Encoding = new(false);
-        StreamWriter pipeWriter = new(_pipe, encoding: utf8Encoding, bufferSize: -1, leaveOpen: true);
-        pipeWriter.AutoFlush = true;
-        StreamReader pipeReader = new(
-            _pipe,
-            encoding: utf8Encoding,
-            detectEncodingFromByteOrderMarks: true,
-            bufferSize: -1,
-            leaveOpen: true);
+        _clientPipe = new RemoteSessionNamedPipeClient(_connectionInfo.ProcessId, "");
 
-        stdInWriter = new OutOfProcessTextWriter(pipeWriter);
-        Thread readerThread = new Thread(() => ProcessReaderThread(pipeReader));
-        readerThread.Name = $"PSDetourClient({_connInfo.ProcessId})";
-        readerThread.IsBackground = true;
-        readerThread.Start();
-    }
+        // Wait for named pipe to connect.
+        _clientPipe.Connect(_connectionInfo.OpenTimeout);
 
-    protected override void CleanupConnection()
-    {
-        Console.WriteLine("CleanupConnection");
-        if (_injectThread != null)
-        {
-            Kernel32.WaitForSingleObject(_injectThread, Kernel32.INFINITE);
-        }
+        stdInWriter = new OutOfProcessTextWriter(_clientPipe.TextWriter);
+
+        // Create reader thread for named pipe.
+        StartReaderThread(_clientPipe.TextReader);
     }
 
     public override void Dispose(bool isDisposing)
     {
-        Console.WriteLine("Dispose");
         base.Dispose(isDisposing);
 
         if (isDisposing)
         {
             _injectThread?.Dispose();
-            _remotePipe?.Dispose();
             _pwshAssemblyMem?.Dispose();
             _workerArgs?.Dispose();
             _psdetourNativeMod?.Dispose();
             _remoteProcess?.Dispose();
-            _clientPipe?.Dispose();
-            _pipe?.Dispose();
         }
     }
 
-    private void ProcessReaderThread(StreamReader pipeReader)
+    public void AbortConnect()
     {
-        try
-        {
-            // Send one fragment.
-            SendOneItem();
-            using FileStream fs = File.OpenWrite(@"C:\temp\Detour\psremoting.xml");
-            using StreamWriter sw = new(fs);
-
-            // Start reader loop.
-            while (true)
-            {
-                string? data = pipeReader.ReadLine();
-                sw.WriteLine(data);
-                sw.Flush();
-                if (data == null)
-                {
-                    // End of stream indicates the target process was lost.
-                    // Raise transport exception to invalidate the client remote runspace.
-                    PSRemotingTransportException psrte = new PSRemotingTransportException(
-                        PSRemotingErrorId.IPCServerProcessReportedError,
-                        RemotingErrorIdStrings.IPCServerProcessReportedError,
-                        RemotingErrorIdStrings.NamedPipeTransportProcessEnded);
-                    RaiseErrorHandler(new TransportErrorOccuredEventArgs(psrte, TransportMethodEnum.ReceiveShellOutputEx));
-                    break;
-                }
-
-                if (data.StartsWith(System.Management.Automation.Remoting.Server.NamedPipeErrorTextWriter.ErrorPrepend, StringComparison.OrdinalIgnoreCase))
-                {
-                    // Error message from the server.
-                    string errorData = data.Substring(System.Management.Automation.Remoting.Server.NamedPipeErrorTextWriter.ErrorPrepend.Length);
-                    HandleErrorDataReceived(errorData);
-                }
-                else
-                {
-                    // Normal output data.
-                    HandleOutputDataReceived(data);
-                }
-            }
-        }
-        catch (ObjectDisposedException)
-        {
-            // Normal reader thread end.
-        }
-        catch (Exception e)
-        {
-            string errorMsg = e.Message ?? string.Empty;
-            _tracer.WriteMessage("NamedPipeClientSessionTransportManager", "StartReaderThread", Guid.Empty,
-                "Transport manager reader thread ended with error: {0}", errorMsg);
-        }
+        _clientPipe?.AbortConnect();
     }
 
     private static SafeRemoteLoadedLibrary LoadRemoteLibrary(SafeProcessHandle process, string module)

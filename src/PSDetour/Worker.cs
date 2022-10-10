@@ -2,6 +2,7 @@ using Microsoft.Win32.SafeHandles;
 using System;
 using System.IO;
 using System.IO.Pipes;
+using System.Management.Automation.Remoting;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
@@ -23,17 +24,25 @@ public class RemoteWorker
     {
         string pwshDependencyDir = Marshal.PtrToStringUni(args.PowerShellDir, args.PowerShellDirCount) ?? "";
 
-        using NamedPipeClientStream pipe = new(PipeDirection.InOut, false, true, new SafePipeHandle(args.Pipe, false));
-
-        // Signal parent it has started properly and is ready for PSRemoting.
-        pipe.WriteByte(0);
-
         PowerShellAssemblyResolver resolver = new(pwshDependencyDir);
         AssemblyLoadContext.Default.Resolving += resolver.ResolvePwshDeps;
-
-        PSRemotingServer.Run(pipe);
-
+        Run(args.Pipe);
         AssemblyLoadContext.Default.Resolving -= resolver.ResolvePwshDeps;
+    }
+
+    private static void Run(IntPtr pipeHandle)
+    {
+        RemoteSessionNamedPipeServer.IPCNamedPipeServerEnabled = true;
+        RemoteSessionNamedPipeServer.CreateIPCNamedPipeServerSingleton();
+
+        using (NamedPipeClientStream pipe = new(PipeDirection.InOut, false, true, new SafePipeHandle(pipeHandle, false)))
+        {
+            // Signal parent it has started properly and is ready for PSRemoting.
+            pipe.WriteByte(0);
+        }
+
+        RemoteSessionNamedPipeServer.RunServerMode(
+            configurationName: null);
     }
 }
 

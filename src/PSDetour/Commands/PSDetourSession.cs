@@ -14,21 +14,21 @@ public class NewPSDetourSession : PSCmdlet
         ValueFromPipeline = true,
         ValueFromPipelineByPropertyName = true
     )]
-    public int[] ProcessId { get; set; } = Array.Empty<int>();
+    public ProcessIntString[] ProcessId { get; set; } = Array.Empty<ProcessIntString>();
 
     [Parameter()]
     public int OpenTimeout { get; set; } = InjectedPipeConnectionInfo.DefaultOpenTimeout;
 
     protected override void ProcessRecord()
     {
-        foreach (int pid in ProcessId)
+        foreach (ProcessIntString pid in ProcessId)
         {
-            InjectedPipeConnectionInfo connInfo = new(pid, OpenTimeout);
+            InjectedPipeConnectionInfo connInfo = new(pid.ProcessObj.Id, OpenTimeout);
 
             // Cannot use CreateRunspace in 7.2.x as it explicitly checks the
             // type of connInfo to be one of the builtin ones of pwsh. Instead
             // will create the RemoteRunspace object directly.
-            RemoteRunspace rs = new(null, connInfo, null, null);
+            RemoteRunspace rs = new(TypeTable.LoadDefaultTypeFiles(), connInfo, Host, null);
             rs.Open();
             WriteObject(new PSSession(rs));
         }

@@ -36,6 +36,11 @@ task AssertSMA {
     & $AssertSMA -RequiredVersion 7.2.0
 }
 
+task CompileDetours {
+    $AssertDetours = "$PSScriptRoot/tools/AssertDetours.ps1"
+    & $AssertDetours -RequiredVersion 4.0.1
+}
+
 task BuildDocs {
     $helpParams = @{
         Path       = [IO.Path]::Combine($PSScriptRoot, 'docs', 'en-US')
