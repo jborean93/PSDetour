@@ -16,7 +16,7 @@ internal static class Kernel32
 
     [DllImport("Kernel32.dll", EntryPoint = "CreateRemoteThread", SetLastError = true)]
     private static extern SafeNativeHandle NativeCreateRemoteThread(
-        SafeNativeHandle hProcess,
+        SafeProcessHandle hProcess,
         IntPtr lpThreadAttributes,
         UIntPtr dwStackSize,
         IntPtr lpStartAddress,
@@ -24,7 +24,7 @@ internal static class Kernel32
         ThreadCreationFlags dwCreationFlags,
         out int lpThreadId);
 
-    public static SafeNativeHandle CreateRemoteThread(SafeNativeHandle process, int stackSize,
+    public static SafeNativeHandle CreateRemoteThread(SafeProcessHandle process, int stackSize,
         IntPtr startAddress, IntPtr parameter, ThreadCreationFlags creationFlags, out int threadId)
     {
         SafeNativeHandle thread = NativeCreateRemoteThread(process, IntPtr.Zero, (UIntPtr)stackSize, startAddress,
@@ -35,6 +35,24 @@ internal static class Kernel32
         }
 
         return thread;
+    }
+
+    [DllImport("Kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "CreateEventW", SetLastError = true)]
+    private static extern SafeWaitHandle NativeCreateEventW(
+        IntPtr lpEventAttributes,
+        bool bManualReset,
+        bool bInitialState,
+        string? lpName);
+
+    public static SafeWaitHandle CreateEventW(string? name, bool manual, bool initialState)
+    {
+        SafeWaitHandle waitHandle = NativeCreateEventW(IntPtr.Zero, manual, initialState, name);
+        if (waitHandle.IsInvalid)
+        {
+            throw new Win32Exception();
+        }
+
+        return waitHandle;
     }
 
     [DllImport("Kernel32.dll", EntryPoint = "DuplicateHandle", SetLastError = true)]
@@ -53,7 +71,7 @@ internal static class Kernel32
     {
         if (targetProcess == null)
         {
-            targetProcess = new SafeNativeHandle(IntPtr.Zero, false);
+            targetProcess = new SafeProcessHandle(IntPtr.Zero, false);
             // If closing the duplicate then mark the returned handle so it doesn't try to close itself again.
             ownsHandle = (options & DuplicateHandleOptions.CloseSource) == 0;
         }
@@ -70,24 +88,9 @@ internal static class Kernel32
     [DllImport("Kernel32.dll", EntryPoint = "GetCurrentProcess")]
     private static extern IntPtr NativeGetCurrentProcess();
 
-    public static SafeNativeHandle GetCurrentProcess()
+    public static SafeProcessHandle GetCurrentProcess()
     {
-        return new SafeNativeHandle(NativeGetCurrentProcess(), false);
-    }
-
-    [DllImport("Kernel32.dll", EntryPoint = "GetExitCodeThread", SetLastError = true)]
-    private static extern bool NativeGetExitCodeThread(
-        SafeNativeHandle hThread,
-        out int lpExitCode);
-
-    public static int GetExitCodeThread(SafeNativeHandle thread)
-    {
-        if (!NativeGetExitCodeThread(thread, out var exitCode))
-        {
-            throw new Win32Exception();
-        }
-
-        return exitCode;
+        return new SafeProcessHandle(NativeGetCurrentProcess(), false);
     }
 
     [DllImport("Kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetModuleFileNameW", SetLastError = true)]
@@ -144,13 +147,13 @@ internal static class Kernel32
         IntPtr hLibModule);
 
     [DllImport("Kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "LoadLibraryW", SetLastError = true)]
-    private static extern IntPtr NativeLoadLibraryW(
+    private static extern SafeLoadedLibrary NativeLoadLibraryW(
         string lpLibFileName);
 
-    public static IntPtr LoadLibraryW(string fileName)
+    public static SafeLoadedLibrary LoadLibraryW(string fileName)
     {
-        IntPtr lib = NativeLoadLibraryW(fileName);
-        if (lib == IntPtr.Zero)
+        SafeLoadedLibrary lib = NativeLoadLibraryW(fileName);
+        if (lib.IsInvalid)
         {
             throw new Win32Exception();
         }
@@ -159,15 +162,15 @@ internal static class Kernel32
     }
 
     [DllImport("Kernel32.dll", EntryPoint = "OpenProcess", SetLastError = true)]
-    private static extern SafeNativeHandle NativeOpenProcess(
+    private static extern SafeProcessHandle NativeOpenProcess(
         ProcessAccessRights dwDesiredAccess,
         bool bInheritHandle,
         Int32 dwProcessId);
 
-    public static SafeNativeHandle OpenProcess(int processId, ProcessAccessRights access, bool inherit)
+    public static SafeProcessHandle OpenProcess(int processId, ProcessAccessRights access, bool inherit)
     {
-        SafeNativeHandle handle = NativeOpenProcess(access, inherit, processId);
-        if (handle.DangerousGetHandle() == IntPtr.Zero)
+        SafeProcessHandle handle = NativeOpenProcess(access, inherit, processId);
+        if (handle.IsInvalid)
             throw new Win32Exception();
 
         return handle;
@@ -175,13 +178,13 @@ internal static class Kernel32
 
     [DllImport("Kernel32.dll", EntryPoint = "VirtualAllocEx", SetLastError = true)]
     private static extern IntPtr NativeVirtualAllocEx(
-        SafeNativeHandle hProcess,
+        SafeProcessHandle hProcess,
         IntPtr lpAddress,
         UIntPtr dwSize,
         MemoryAllocationType flAllocationType,
         MemoryProtection flProtect);
 
-    public static IntPtr VirtualAllocEx(SafeNativeHandle process, IntPtr address, int size,
+    public static IntPtr VirtualAllocEx(SafeProcessHandle process, IntPtr address, int size,
         MemoryAllocationType allocationType, MemoryProtection protection)
     {
         IntPtr mem = NativeVirtualAllocEx(process, address, (UIntPtr)size, allocationType, protection);
@@ -195,12 +198,12 @@ internal static class Kernel32
 
     [DllImport("Kernel32.dll", EntryPoint = "VirtualFreeEx", SetLastError = true)]
     private static extern bool NativeVirtualFreeEx(
-        SafeNativeHandle hProcess,
+        SafeProcessHandle hProcess,
         IntPtr lPAddress,
         UIntPtr dwSize,
         MemoryFreeType dwFreeType);
 
-    public static void VirtualFreeEx(SafeNativeHandle process, IntPtr address, int size, MemoryFreeType freeType)
+    public static void VirtualFreeEx(SafeProcessHandle process, IntPtr address, int size, MemoryFreeType freeType)
     {
         if (!NativeVirtualFreeEx(process, address, (UIntPtr)size, freeType))
         {
@@ -230,13 +233,13 @@ internal static class Kernel32
 
     [DllImport("Kernel32.dll", EntryPoint = "WriteProcessMemory", SetLastError = true)]
     private unsafe static extern bool NativeWriteProcessMemory(
-        SafeNativeHandle hProcess,
+        SafeProcessHandle hProcess,
         IntPtr lpBaseAddress,
         byte* lpBuffer,
         UIntPtr nSize,
         out UIntPtr lpNumberOfBytesWritten);
 
-    public static int WriteProcessMemory(SafeNativeHandle process, IntPtr address, ReadOnlySpan<byte> data)
+    public static int WriteProcessMemory(SafeProcessHandle process, IntPtr address, ReadOnlySpan<byte> data)
     {
         UIntPtr written;
         unsafe
@@ -455,19 +458,18 @@ internal enum ThreadCreationFlags : uint
     StackSizeParamIsAReservation = 0x00010000,
 }
 
-internal class SafeDuplicateHandle : SafeHandleZeroOrMinusOneIsInvalid
+internal class SafeDuplicateHandle : SafeHandle
 {
     private readonly SafeHandle _process;
     private readonly bool _ownsHandle;
 
-    public SafeDuplicateHandle(IntPtr handle, SafeHandle process) : this(handle, process, true) { }
-
-    public SafeDuplicateHandle(IntPtr handle, SafeHandle process, bool ownsHandle) : base(true)
+    public SafeDuplicateHandle(IntPtr handle, SafeHandle process, bool ownsHandle) : base(handle, true)
     {
-        SetHandle(handle);
         _process = process;
         _ownsHandle = ownsHandle;
     }
+
+    public override bool IsInvalid => handle == IntPtr.Zero;
 
     protected override bool ReleaseHandle()
     {
@@ -475,25 +477,78 @@ internal class SafeDuplicateHandle : SafeHandleZeroOrMinusOneIsInvalid
         {
             // Cannot pass this as the handle to close as it appears as closed/invalid already. Just wrap it in
             // a temp SafeHandle that is set not to dispose itself once done.
-            Kernel32.DuplicateHandle(_process, new SafeNativeHandle(handle, false), null, 0, false,
+            Kernel32.DuplicateHandle(_process, new SafeProcessHandle(handle, false), null, 0, false,
                 DuplicateHandleOptions.CloseSource, false);
         }
         return true;
     }
 }
 
-internal class SafeNativeHandle : SafeHandleZeroOrMinusOneIsInvalid
+internal class SafeLoadedLibrary : SafeHandle
 {
-    public SafeNativeHandle() : base(true) { }
-    public SafeNativeHandle(IntPtr handle) : this(handle, true) { }
+    public SafeLoadedLibrary() : base(IntPtr.Zero, true) { }
 
-    public SafeNativeHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
+    public override bool IsInvalid => handle == IntPtr.Zero;
+
+    protected override bool ReleaseHandle()
     {
-        SetHandle(handle);
+        return Kernel32.FreeLibrary(handle);
     }
+}
+
+internal class SafeNativeHandle : SafeHandle
+{
+    public SafeNativeHandle() : base(IntPtr.Zero, true) { }
+
+    public SafeNativeHandle(IntPtr handle, bool ownsHandle) : base(handle, ownsHandle) { }
+
+    public override bool IsInvalid => handle == IntPtr.Zero;
 
     protected override bool ReleaseHandle()
     {
         return Kernel32.CloseHandle(handle);
+    }
+}
+
+internal class SafeRemoteLoadedLibrary : SafeHandle
+{
+    internal SafeRemoteLoadedLibrary(SafeProcessHandle process, IntPtr addr) : base(addr, true)
+    {
+        _process = process;
+    }
+
+    public override bool IsInvalid => handle == IntPtr.Zero;
+
+    internal readonly SafeProcessHandle _process;
+
+    protected override bool ReleaseHandle()
+    {
+        using SafeNativeHandle thread = Kernel32.CreateRemoteThread(
+            _process,
+            0,
+            PSDetourNative.FreeLibraryAddr.Value,
+            handle,
+            ThreadCreationFlags.None,
+            out var _);
+        Kernel32.WaitForSingleObject(thread, Kernel32.INFINITE);
+        return true;
+    }
+}
+
+internal class SafeRemoteMemory : SafeHandle
+{
+    internal SafeRemoteMemory(SafeProcessHandle process, IntPtr addr) : base(addr, true)
+    {
+        _process = process;
+    }
+
+    public override bool IsInvalid => handle == IntPtr.Zero;
+
+    internal readonly SafeProcessHandle _process;
+
+    protected override bool ReleaseHandle()
+    {
+        Kernel32.VirtualFreeEx(_process, handle, 0, MemoryFreeType.Release);
+        return true;
     }
 }

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net6.0-windows</TargetFramework>
   </PropertyGroup>
 
   <PropertyGroup>
@@ -40,12 +40,6 @@
       <NativeOutputFilePath>$(NativeBinDir)/$(NativeOutputName)$(NativeOutputExtension)</NativeOutputFilePath>
 
       <SourceFiles>@(NativeSource-> '&quot;%(RootDir)%(Directory)%(Filename)%(Extension)&quot;', ' ')</SourceFiles>
-
-      <NetHostDir>$(NetCoreTargetingPackRoot)/Microsoft.NETCore.App.Host.$(NETCoreSdkRuntimeIdentifier)/$(BundledNETCoreAppPackageVersion)/runtimes/$(NETCoreSdkRuntimeIdentifier)/native</NetHostDir>
-
-      <NetHostName Condition="$([MSBuild]::IsOsPlatform('Windows'))">nethost.dll</NetHostName>
-      <NetHostName Condition="$([MSBuild]::IsOsPlatform('Linux'))">libnethost.so</NetHostName>
-      <NetHostName Condition="$([MSBuild]::IsOsPlatform('OSX'))">libnethost.dylib</NetHostName>
     </PropertyGroup>
 
     <MakeDir Directories="$(NativeBinDir)" />
@@ -57,25 +51,21 @@
           DependsOnTargets="PrepareForNativeBuild"
           Condition="$([MSBuild]::IsOsPlatform('Linux')) OR $([MSBuild]::IsOsPlatform('OSX'))">
     <PropertyGroup>
-      <IncPaths>-I$(NativeHostDirectory)inc -I&quot;$(NetHostDir)&quot;</IncPaths>
+      <IncPaths>-I$(NativeHostDirectory)inc</IncPaths>
       <CompilerArgs>-g</CompilerArgs>
     </PropertyGroup>
     <PropertyGroup Condition="$([MSBuild]::IsOsPlatform('Linux'))">
       <PreprocessorDefines>-D LINUX</PreprocessorDefines>
-      <LinkArgs>-ldl -lnethost -lpthread -L&quot;$(NetHostDir)&quot; -Wl,-rpath,'$ORIGIN',--disable-new-dtags</LinkArgs>
+      <LinkArgs>-ldl -lpthread -Wl,-rpath,'$ORIGIN',--disable-new-dtags</LinkArgs>
     </PropertyGroup>
     <PropertyGroup Condition="$([MSBuild]::IsOsPlatform('OSX'))">
       <PreprocessorDefines>-D OSX</PreprocessorDefines>
-      <LinkArgs>-ldl -lnethost -lpthread -L&quot;$(NetHostDir)&quot; -Wl,-rpath,'@loader_path'</LinkArgs>
+      <LinkArgs>-ldl -lpthread -Wl,-rpath,'@loader_path'</LinkArgs>
     </PropertyGroup>
 
     <Exec Command="g++ $(SourceFiles) $(IncPaths) $(PreprocessorDefines) -std=c++11 -o &quot;$(NativeOutputFilePath)&quot; $(CompilerArgs) $(LinkArgs)"
           WorkingDirectory="$(NativeObjDir)"
           ConsoleToMsBuild="true" />
-
-    <Copy SourceFiles="$(NetHostDir)/$(NetHostName)"
-          DestinationFolder="$(NativeBinDir)"
-          SkipUnchangedFiles="True" />
   </Target>
 
   <Target Name="BuildNativeProjectWindows"
@@ -84,7 +74,7 @@
           Condition="$([MSBuild]::IsOsPlatform('Windows'))">
     <PropertyGroup>
       <IncPaths>@(MSVCIncludePaths-> '/I &quot;%(RootDir)%(Directory)%(Filename)&quot;', ' ')</IncPaths>
-      <IncPaths>$(IncPaths) /I inc /I &quot;$(NetHostDir)&quot;</IncPaths>
+      <IncPaths>$(IncPaths) /I &quot;$([System.IO.Path]::GetFullPath('inc'))&quot;</IncPaths>
       <CompilerArgs>/EHsc /Od /GS /sdl /Zi /std:c++17 /LD</CompilerArgs>
       <PreprocessorDefines>/D WINDOWS</PreprocessorDefines>
       <LibPaths>@(MSVCLibPaths-> '/LIBPATH:&quot;%(RootDir)%(Directory)%(Filename)&quot;', ' ')</LibPaths>
@@ -94,9 +84,5 @@
     <Exec Command="&quot;$(MSVCCompilerPath)&quot; $(SourceFiles) $(IncPaths) $(PreprocessorDefines) $(CompilerArgs) /link $(LibPaths) /out:&quot;$(NativeOutputFilePath)&quot;"
           WorkingDirectory="$(NativeObjDir)"
           ConsoleToMsBuild="true" />
-
-    <Copy SourceFiles="$(NetHostDir)/$(NetHostName)"
-          DestinationFolder="$(NativeBinDir)"
-          SkipUnchangedFiles="True" />
   </Target>
 </Project>

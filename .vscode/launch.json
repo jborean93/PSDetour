@@ -5,12 +5,6 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "(Windows) Attach",
-            "type": "cppvsdbg",
-            "request": "attach",
-            "processId": "${command:pickProcess}",
-        },
-        {
             "name": "PowerShell launch",
             "type": "coreclr",
             "request": "launch",
@@ -26,18 +20,17 @@
             "console": "externalTerminal",
         },
         {
+            "name": "(Windows) Attach",
+            "type": "cppvsdbg",
+            "request": "attach",
+            "processId": "${command:pickProcess}",
+        },
+        {
             "name": "PowerShell Launch Current File",
             "type": "PowerShell",
             "request": "launch",
             "script": "${file}",
             "cwd": "${workspaceFolder}"
-        },
-        {
-            "name": ".NET FullCLR Attach",
-            "type": "clr",
-            "request": "attach",
-            "processId": "${command:pickProcess}",
-            "justMyCode": true,
         },
         {
             "name": ".NET CoreCLR Attach",

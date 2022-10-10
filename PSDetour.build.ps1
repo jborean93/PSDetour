@@ -31,6 +31,11 @@ task Clean {
     New-Item -ItemType Directory $ReleasePath | Out-Null
 }
 
+task AssertSMA {
+    $AssertSMA = "$PSScriptRoot/tools/AssertSMA.ps1"
+    & $AssertSMA -RequiredVersion 7.2.0
+}
+
 task BuildDocs {
     $helpParams = @{
         Path       = [IO.Path]::Combine($PSScriptRoot, 'docs', 'en-US')
@@ -82,7 +87,7 @@ task CopyToRelease {
         if (-not (Test-Path -LiteralPath $binFolder)) {
             New-Item -Path $binFolder -ItemType Directory | Out-Null
         }
-        Copy-Item ([IO.Path]::Combine($buildFolder, "*")) -Destination $binFolder
+        Copy-Item ([IO.Path]::Combine($buildFolder, "*")) -Destination $binFolder -Exclude "System.Management.Automation.*"
 
         Copy-Item ([IO.Path]::Combine($nativeBuildFolder, '*.dll')) -Destination $binFolder
     }
@@ -263,7 +268,7 @@ task DoInstall {
     Copy-Item -Path ([IO.Path]::Combine($ReleasePath, '*')) -Destination $installPath -Force -Recurse
 }
 
-task Build -Jobs Clean, BuildManaged, CopyToRelease, BuildDocs, Sign, Package
+task Build -Jobs Clean, AssertSMA, BuildManaged, CopyToRelease, BuildDocs, Sign, Package
 
 # FIXME: Work out why we need the obj and bin folder for coverage to work
 task Test -Jobs BuildManaged, Analyze, DoUnitTest, DoTest

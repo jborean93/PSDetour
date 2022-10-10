@@ -5,15 +5,13 @@ using System.IO.Pipes;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
-using System.Text;
 
 namespace PSDetour;
 
 [StructLayout(LayoutKind.Sequential)]
 public struct WorkerArgs
 {
-    public IntPtr PipeIn;
-    public IntPtr PipeOut;
+    public IntPtr Pipe;
     public IntPtr PowerShellDir;
     public int PowerShellDirCount;
 }
@@ -25,21 +23,15 @@ public class RemoteWorker
     {
         string pwshDependencyDir = Marshal.PtrToStringUni(args.PowerShellDir, args.PowerShellDirCount) ?? "";
 
-        UTF8Encoding utf8Encoding = new UTF8Encoding();
-        using AnonymousPipeClientStream pipeIn = new AnonymousPipeClientStream(PipeDirection.In, new SafePipeHandle(args.PipeIn, false));
-        using StreamReader pipeReader = new StreamReader(pipeIn, utf8Encoding);
+        using NamedPipeClientStream pipe = new(PipeDirection.InOut, false, true, new SafePipeHandle(args.Pipe, false));
 
-        using AnonymousPipeClientStream pipeOut = new AnonymousPipeClientStream(PipeDirection.Out, new SafePipeHandle(args.PipeOut, false));
-        using StreamWriter sw = new StreamWriter(pipeOut, utf8Encoding);
-        sw.AutoFlush = true;
-        sw.WriteLine("connected");
+        // Signal parent it has started properly and is ready for PSRemoting.
+        pipe.WriteByte(0);
 
         PowerShellAssemblyResolver resolver = new(pwshDependencyDir);
         AssemblyLoadContext.Default.Resolving += resolver.ResolvePwshDeps;
 
-        string cmdToRun = pipeReader.ReadLine() ?? "unknown";
-        string res = PowerShellRunner.Run(cmdToRun);
-        sw.WriteLine(res);
+        PSRemotingServer.Run(pipe);
 
         AssemblyLoadContext.Default.Resolving -= resolver.ResolvePwshDeps;
     }

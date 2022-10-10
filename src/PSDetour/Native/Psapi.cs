@@ -1,3 +1,4 @@
+using Microsoft.Win32.SafeHandles;
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
@@ -8,13 +9,13 @@ internal static class Psapi
 {
     [DllImport("Psapi.dll", EntryPoint = "EnumProcessModulesEx")]
     private static extern bool NativeEnumProcessModulesEx(
-        SafeNativeHandle hProcess,
+        SafeProcessHandle hProcess,
         IntPtr[] lphModule,
         int cb,
         out int lpcbNeeded,
         EnumProcessModulesFilterFlag dwFilterFlag);
 
-    public static IntPtr[] EnumProcessModulesEx(SafeNativeHandle process, EnumProcessModulesFilterFlag filterFlag)
+    public static IntPtr[] EnumProcessModulesEx(SafeProcessHandle process, EnumProcessModulesFilterFlag filterFlag)
     {
         IntPtr[] modules = Array.Empty<IntPtr>();
         int needed = 0;
