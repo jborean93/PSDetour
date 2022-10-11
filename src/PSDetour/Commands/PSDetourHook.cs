@@ -48,7 +48,7 @@ public class NewPSDetourHook : PSCmdlet
             return;
         }
 
-        Type[] methodTypes = scriptAst.ParamBlock.Parameters.Select(p => p.StaticType).ToArray();
+        Type[] methodTypes = scriptAst.ParamBlock.Parameters.Select(p => ProcessParameterType(p)).ToArray();
         Type returnType = scriptAst.ParamBlock.Attributes
             .Where(a => a.TypeName.GetReflectionType() == typeof(OutputTypeAttribute) && a.PositionalArguments.Count == 1)
             .Select(a => a.PositionalArguments[0])
@@ -62,6 +62,22 @@ public class NewPSDetourHook : PSCmdlet
         Type delegateType = CreateDelegateType(customType.GetMethod("Invoke")!);
 
         WriteObject(new Hook(DllName, MethodName, Action, customType, delegateType));
+    }
+
+    public static Type ProcessParameterType(ParameterAst parameter)
+    {
+        if (parameter.StaticType == typeof(PSReference))
+        {
+            return parameter.Attributes
+                .Select(a => a.TypeName.GetReflectionType())
+                .Where(t => t != typeof(PSReference))
+                .Select(t => t.MakeByRefType())
+                .FirstOrDefault(typeof(object));
+        }
+        else
+        {
+            return parameter.StaticType;
+        }
     }
 
 
@@ -150,7 +166,18 @@ public class NewPSDetourHook : PSCmdlet
             il.Emit(OpCodes.Dup);
             il.Emit(OpCodes.Ldc_I4, i);
             il.Emit(OpCodes.Ldarg, i);
-            il.Emit(OpCodes.Box, parameters[i]);
+
+            Type? elementType = parameters[i].GetElementType();
+            if (elementType != null)
+            {
+                il.Emit(OpCodes.Ldind_I);
+                il.Emit(OpCodes.Box, elementType);
+            }
+            else
+            {
+                il.Emit(OpCodes.Box, parameters[i]);
+            }
+
             il.Emit(OpCodes.Stelem_Ref);
         }
 
