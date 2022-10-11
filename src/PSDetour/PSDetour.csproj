@@ -12,7 +12,8 @@
 
   <ItemGroup>
     <!--Look at removing with 7.3.0 when the remoting APIs are public-->
-    <PackageReference Include="IgnoresAccessChecksToGenerator" Version="0.5.0" PrivateAssets="All" />
-    <Reference Include="../../output/lib/System.Management.Automation/7.2.0/System.Management.Automation.dll" PrivateAssets="All" />
+    <PackageReference Include="IgnoresAccessChecksToGenerator" Version="0.5.0" PrivateAssets="all" />
+    <PackageReference Include="System.Reflection.Emit" Version="4.7.0" PrivateAssets="all" />
+    <Reference Include="../../output/lib/System.Management.Automation/7.2.0/System.Management.Automation.dll" PrivateAssets="all" />
   </ItemGroup>
 </Project>

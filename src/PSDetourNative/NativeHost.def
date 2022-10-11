@@ -1,0 +1,7 @@
+LIBRARY
+EXPORTS
+	DetourAttach
+	DetourDetach
+	DetourTransactionBegin
+	DetourTransactionCommit
+	DetourUpdateThread

@@ -36,7 +36,7 @@ task AssertSMA {
     & $AssertSMA -RequiredVersion 7.2.0
 }
 
-task CompileDetours {
+task AssertDetours {
     $AssertDetours = "$PSScriptRoot/tools/AssertDetours.ps1"
     & $AssertDetours -RequiredVersion 4.0.1
 }
@@ -273,7 +273,7 @@ task DoInstall {
     Copy-Item -Path ([IO.Path]::Combine($ReleasePath, '*')) -Destination $installPath -Force -Recurse
 }
 
-task Build -Jobs Clean, AssertSMA, BuildManaged, CopyToRelease, BuildDocs, Sign, Package
+task Build -Jobs Clean, AssertDetours, AssertSMA, BuildManaged, CopyToRelease, BuildDocs, Sign, Package
 
 # FIXME: Work out why we need the obj and bin folder for coverage to work
 task Test -Jobs BuildManaged, Analyze, DoUnitTest, DoTest

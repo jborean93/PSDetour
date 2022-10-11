@@ -41,23 +41,26 @@
           AfterTargets="Build"
           DependsOnTargets="PrepareForNativeBuild;MSVCFindCompilerPaths">
     <PropertyGroup>
+      <DetoursPath>%PATH%;$([System.IO.Path]::GetDirectoryName('$(MSVCCompilerPath)'))</DetoursPath>
+      <DetoursIncPaths>@(MSVCIncludePaths)</DetoursIncPaths>
+      <DetoursLibPaths>@(MSVCLibPaths)</DetoursLibPaths>
       <IncPaths>@(MSVCIncludePaths-> '/I &quot;%(RootDir)%(Directory)%(Filename)&quot;', ' ')</IncPaths>
       <IncPaths>$(IncPaths) /I &quot;$([System.IO.Path]::GetFullPath('inc'))&quot;</IncPaths>
+      <IncPaths>$(IncPaths) /I &quot;$([System.IO.Path]::GetFullPath('../../output/lib/Detours/include'))&quot;</IncPaths>
       <CompilerArgs>/EHsc /Od /GS /sdl /Zi /std:c++17 /LD</CompilerArgs>
       <PreprocessorDefines>/D WINDOWS</PreprocessorDefines>
       <LibPaths>@(MSVCLibPaths-> '/LIBPATH:&quot;%(RootDir)%(Directory)%(Filename)&quot;', ' ')</LibPaths>
+      <LibPaths>$(LibPaths) /LIBPATH:&quot;$([System.IO.Path]::GetFullPath('../../output/lib/Detours/lib.$(MSVCPlatform.ToUpper())'))&quot;</LibPaths>
       <LibPaths>$(LibPaths)</LibPaths>
+      <LinkerArgs>/link $(LibPaths) /DEF:&quot;$(MSBuildThisFileDirectory)/NativeHost.def&quot; detours.lib /out:&quot;$(NativeOutputFilePath)&quot; /ignore:4099</LinkerArgs>
     </PropertyGroup>
 
-    <!--
-    <Exec Command="set PATH=%PATH%;$([System.IO.Path]::GetDirectoryName('$(MSVCCompilerPath)')) &amp;&amp; &quot;$([System.IO.Path]::GetFullPath('$(MSVCCompilerPath)/../nmake.exe'))&quot;"
+    <Exec Command="set &quot;PATH=$(DetoursPath)&quot; &amp;&amp; set &quot;LIBPATH=$(DetoursLibPaths)&quot; &amp;&amp; set &quot;INCLUDE=$(DetoursIncPaths)&quot; &amp;&amp; nmake.exe"
           WorkingDirectory="$([System.IO.Path]::GetFullPath('../../output/lib/Detours/src'))"
           ConsoleToMsBuild="true"
-          UseCommandProcessor="true"
-          EnvironmentVariables="DETOURS_TARGET_PROCESSOR=X64" />
-    -->
+          EnvironmentVariables="DETOURS_TARGET_PROCESSOR=$(MSVCPlatform.ToUpper())" />
 
-    <Exec Command="&quot;$(MSVCCompilerPath)&quot; $(SourceFiles) $(IncPaths) $(PreprocessorDefines) $(CompilerArgs) /link $(LibPaths) /out:&quot;$(NativeOutputFilePath)&quot;"
+    <Exec Command="&quot;$(MSVCCompilerPath)&quot; $(SourceFiles) $(IncPaths) $(PreprocessorDefines) $(CompilerArgs) $(LinkerArgs)"
           WorkingDirectory="$(NativeObjDir)"
           ConsoleToMsBuild="true" />
   </Target>

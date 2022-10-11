@@ -93,6 +93,14 @@ internal static class Kernel32
         return new SafeProcessHandle(NativeGetCurrentProcess(), false);
     }
 
+    [DllImport("Kernel32.dll", EntryPoint = "GetCurrentThread")]
+    private static extern IntPtr NativeGetCurrentThread();
+
+    public static SafeNativeHandle GetCurrentThread()
+    {
+        return new SafeNativeHandle(NativeGetCurrentThread(), false);
+    }
+
     [DllImport("Kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetModuleFileNameW", SetLastError = true)]
     private static extern int NativeGetModuleHandleW(
         IntPtr hModule,

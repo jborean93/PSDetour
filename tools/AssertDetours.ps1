@@ -29,10 +29,12 @@ begin {
                     <# share:  #> [FileShare]::ReadWrite)
                 try {
                     $entryStream.CopyTo($destinationStream)
-                } finally {
+                }
+                finally {
                     $destinationStream.Dispose()
                 }
-            } finally {
+            }
+            finally {
                 $entryStream.Dispose()
             }
         }
@@ -53,17 +55,26 @@ end {
 
     $oldSecurityProtocol = [ServicePointManager]::SecurityProtocol
     try {
-        &{
+        & {
             $ProgressPreference = 'SilentlyContinue'
             [ServicePointManager]::SecurityProtocol = 'Tls12'
             $downloadUri = "https://github.com/microsoft/Detours/archive/refs/tags/v$RequiredVersion.zip"
             Invoke-WebRequest -UseBasicParsing -Uri $downloadUri -OutFile $targetFolder/$fileName
         }
-    } finally {
+    }
+    finally {
         [ServicePointManager]::SecurityProtocol = $oldSecurityProtocol
     }
 
-    Expand-Archive -LiteralPath $targetFolder/$fileName -DestinationPath $targetFolder
+    $oldPreference = $global:ProgressPreference
+    try {
+        $global:ProgressPreference = 'SilentlyContinue'
+        Expand-Archive -LiteralPath $targetFolder/$fileName -DestinationPath $targetFolder
+    }
+    finally {
+        $global:ProgressPreference = $oldPreference
+    }
+
     Rename-Item -LiteralPath $targetFolder/Detours-$RequiredVersion -NewName Detours
     Remove-Item -LiteralPath $targetFolder/$fileName
 }
