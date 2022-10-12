@@ -79,7 +79,7 @@ internal class ScriptBlockDelegate
 
         Type delegateType = CreateDelegateClass(delegateName, returnType, parameters);
         Type thisContextType = CreateThisContextClass($"{typeName}Invoke", returnType, parameters,
-            delegateType.GetMethod("Invoke")!);
+            delegateType, delegateType.GetMethod("Invoke")!);
         Type runnerType = CreateRunnerClass(typeName, returnType, parameters, thisContextType);
 
         return new(
@@ -120,10 +120,11 @@ internal class ScriptBlockDelegate
         ILGenerator il = mb.GetILGenerator();
 
         LocalBuilder varSbkVars = il.DeclareLocal(typeof(List<PSVariable>));
-        LocalBuilder varResult = il.DeclareLocal(typeof(Collection<PSObject>));
-        LocalBuilder varCount = il.DeclareLocal(typeof(int));
-        LocalBuilder varUncastedResult = il.DeclareLocal(typeof(object));
-        LocalBuilder varReturn = il.DeclareLocal(returnType);
+        LocalBuilder? varResult = null;
+        if (returnType != typeof(void))
+        {
+            varResult = il.DeclareLocal(typeof(Collection<PSObject>));
+        }
 
         // For all the ref types we need a local for the pinned and * types.
         // For easier referencing we use a null placeholder for other types
@@ -223,7 +224,11 @@ internal class ScriptBlockDelegate
         }
 
         il.Emit(OpCodes.Callvirt, GlobalState.SbkInvokeWithContext);
-        il.Emit(OpCodes.Stloc_S, varResult);
+
+        if (varResult != null)
+        {
+            il.Emit(OpCodes.Stloc_S, varResult);
+        }
 
         // Need to unpin the fixed vars by setting them to 0
         foreach (ReferenceLocal? refArg in referenceTypes)
@@ -238,51 +243,63 @@ internal class ScriptBlockDelegate
             il.Emit(OpCodes.Stloc, ((ReferenceLocal)refArg).Pinned);
         }
 
-        /*
-            int count = varResult.Count;
-        */
-        il.Emit(OpCodes.Ldloc, varResult);
-        il.Emit(OpCodes.Callvirt, GlobalState.CollectionCount);
-        il.Emit(OpCodes.Stloc, varCount);
+        if (varResult != null)
+        {
+            LocalBuilder varCount = il.DeclareLocal(typeof(int));
+            LocalBuilder varUncastedResult = il.DeclareLocal(typeof(object));
+            LocalBuilder varReturn = il.DeclareLocal(returnType);
 
-        /*
-            if (count > 0)
-        */
-        Label defaultVal = il.DefineLabel();
+            /*
+                int count = varResult.Count;
+            */
+            il.Emit(OpCodes.Ldloc, varResult);
+            il.Emit(OpCodes.Callvirt, GlobalState.CollectionCount);
+            il.Emit(OpCodes.Stloc, varCount);
 
-        il.Emit(OpCodes.Ldloc, varCount);
-        il.Emit(OpCodes.Ldc_I4_0);
-        il.Emit(OpCodes.Ble, defaultVal);
+            /*
+                if (count > 0)
+            */
+            Label defaultVal = il.DefineLabel();
 
-        /*
-            if (varResult[count - 1].BaseObject is T ret)
-            {
-                return ret;
-            }
-        */
-        il.Emit(OpCodes.Ldloc, varResult);
-        il.Emit(OpCodes.Ldloc, varCount);
-        il.Emit(OpCodes.Ldc_I4_1);
-        il.Emit(OpCodes.Sub);
-        il.Emit(OpCodes.Callvirt, GlobalState.CollectionGetItem);
-        il.Emit(OpCodes.Callvirt, GlobalState.PSObjectBaseObject);
-        il.Emit(OpCodes.Stloc, varUncastedResult);
-        il.Emit(OpCodes.Ldloc, varUncastedResult);
+            il.Emit(OpCodes.Ldloc, varCount);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Ble, defaultVal);
 
-        il.Emit(OpCodes.Isinst, returnType);
-        il.Emit(OpCodes.Brfalse, defaultVal);
+            /*
+                if (varResult[count - 1].BaseObject is T ret)
+                {
+                    return ret;
+                }
+            */
+            il.Emit(OpCodes.Ldloc, varResult);
+            il.Emit(OpCodes.Ldloc, varCount);
+            il.Emit(OpCodes.Ldc_I4_1);
+            il.Emit(OpCodes.Sub);
+            il.Emit(OpCodes.Callvirt, GlobalState.CollectionGetItem);
+            il.Emit(OpCodes.Callvirt, GlobalState.PSObjectBaseObject);
+            il.Emit(OpCodes.Stloc, varUncastedResult);
+            il.Emit(OpCodes.Ldloc, varUncastedResult);
 
-        il.Emit(OpCodes.Ldloc, varUncastedResult);
-        il.Emit(OpCodes.Unbox_Any, returnType);
-        il.Emit(OpCodes.Stloc, varReturn);
-        il.Emit(OpCodes.Ldloc, varReturn);
-        il.Emit(OpCodes.Ret);
+            il.Emit(OpCodes.Isinst, returnType);
+            il.Emit(OpCodes.Brfalse, defaultVal);
 
-        /*
-            return default;
-        */
-        il.MarkLabel(defaultVal);
-        il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Ldloc, varUncastedResult);
+            il.Emit(OpCodes.Unbox_Any, returnType);
+            il.Emit(OpCodes.Stloc, varReturn);
+            il.Emit(OpCodes.Ldloc, varReturn);
+            il.Emit(OpCodes.Ret);
+
+            /*
+                return default;
+            */
+            il.MarkLabel(defaultVal);
+            il.Emit(OpCodes.Ldc_I4_0);
+        }
+        else
+        {
+            il.Emit(OpCodes.Pop);
+        }
+
         il.Emit(OpCodes.Ret);
 
         return tb.CreateType()!;
@@ -316,7 +333,7 @@ internal class ScriptBlockDelegate
     }
 
     private static Type CreateThisContextClass(string typeName, Type returnType, Type[] parameters,
-        MethodInfo delegateMethod)
+        Type delegateType, MethodInfo delegateMethod)
     {
         TypeBuilder tb = GlobalState.Builder.DefineType(
             typeName,
@@ -325,11 +342,6 @@ internal class ScriptBlockDelegate
         FieldBuilder originalMethodField = tb.DefineField(
             "OriginalMethod",
             typeof(GCHandle),
-            FieldAttributes.Private);
-
-        FieldBuilder originalMethodField2 = tb.DefineField(
-            "OriginalMethod2",
-            typeof(IntPtr),
             FieldAttributes.Private);
 
         MethodBuilder mb = tb.DefineMethod(
@@ -346,14 +358,13 @@ internal class ScriptBlockDelegate
 
         ILGenerator il = mb.GetILGenerator();
 
-        MethodInfo readIntPtr = typeof(Marshal).GetMethod("ReadIntPtr", new[] { typeof(IntPtr) })!;
+        MethodInfo test = typeof(Marshal).GetMethod("GetDelegateForFunctionPointer", new[] { typeof(IntPtr) })!;
 
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Ldflda, originalMethodField);
         il.Emit(OpCodes.Call, GlobalState.AddrOfPinnedObj);
-        // il.Emit(OpCodes.Ldflda, originalMethodField2);
-        // il.Emit(OpCodes.Call, readIntPtr);
-        il.Emit(OpCodes.Call, GlobalState.GetDelegateForFunc);
+        il.Emit(OpCodes.Ldind_I);
+        il.Emit(OpCodes.Call, GlobalState.GetDelegateForFunc.MakeGenericMethod(new[] { delegateType }));
         for (int i = 1; i <= parameters.Length; i++)
         {
             il.Emit(OpCodes.Ldarg, i);
@@ -386,6 +397,8 @@ public class Ref<T> where T : unmanaged
     private unsafe T* _ptr;
 
     internal unsafe Ref(T* ptr) => _ptr = ptr;
+
+    // public static implicit operator PSReference(Ref<T> val) => new PSReference(val.Value);
 
     public unsafe T Value
     {
