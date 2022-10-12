@@ -58,12 +58,6 @@ jobs:
         - name: PS x64
           os: windows-latest
           psversion: pwsh
-        - name: WinPS x64
-          os: windows-latest
-          psversion: powershell
-        - name: WinPS x86
-          os: windows-latest
-          psversion: C:\Windows\SysWow64\WindowsPowerShell\v1.0\powershell
 
     steps:
     - uses: actions/checkout@v2

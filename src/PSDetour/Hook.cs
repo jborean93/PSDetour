@@ -36,26 +36,28 @@ public static class Hook
 {
     private static List<RunningHook> RunningHooks = new();
 
-    public static void Start()
-    {
-        using var _ = Detour.DetourTransactionBegin();
-        Detour.DetourUpdateThread(Kernel32.GetCurrentThread());
-        // IntPtr originalMethod = GlobalState.GetProcAddress("Advapi32.dll", "OpenSCManagerW");
-        // IntPtr originalMethod = GlobalState.GetProcAddress("Kernel32.dll", "GetCurrentProcessId");
-        IntPtr originalMethod = GlobalState.GetProcAddress("Kernel32.dll", "Sleep");
+    // public static void Start()
+    // {
+    //     using var _ = Detour.DetourTransactionBegin();
+    //     Detour.DetourUpdateThread(Kernel32.GetCurrentThread());
+    //     // IntPtr originalMethod = GlobalState.GetProcAddress("Advapi32.dll", "OpenSCManagerW");
+    //     // IntPtr originalMethod = GlobalState.GetProcAddress("Kernel32.dll", "GetCurrentProcessId");
+    //     // IntPtr originalMethod = GlobalState.GetProcAddress("Kernel32.dll", "Sleep");
+    //     IntPtr originalMethod = GlobalState.GetProcAddress("Kernel32.dll", "CreateFileW");
 
-        // Delegate myDelegate = Delegate.CreateDelegate(typeof(OpenSCManagerDelegate), typeof(Hook), "OpenSCManagerFunc");
-        // Delegate myDelegate = Delegate.CreateDelegate(typeof(GetCurrentProcessIdDelegate), typeof(Hook), "GetCurrentProcessIdFunc");
-        Delegate myDelegate = Delegate.CreateDelegate(typeof(SleepDelegate), typeof(Hook), "SleepFunc");
-        IntPtr invokeDelegate = Marshal.GetFunctionPointerForDelegate(myDelegate);
+    //     // Delegate myDelegate = Delegate.CreateDelegate(typeof(OpenSCManagerDelegate), typeof(Hook), "OpenSCManagerFunc");
+    //     // Delegate myDelegate = Delegate.CreateDelegate(typeof(GetCurrentProcessIdDelegate), typeof(Hook), "GetCurrentProcessIdFunc");
+    //     // Delegate myDelegate = Delegate.CreateDelegate(typeof(SleepDelegate), typeof(Hook), "SleepFunc");
+    //     Delegate myDelegate = Delegate.CreateDelegate(typeof(CreateFileDelegate), typeof(Hook), "CreateFileFunc");
+    //     IntPtr invokeDelegate = Marshal.GetFunctionPointerForDelegate(myDelegate);
 
-        RunningHook hook = new(invokeDelegate, myDelegate, originalMethod, null);
-        RunningHooks.Add(hook);
+    //     RunningHook hook = new(invokeDelegate, myDelegate, originalMethod, null);
+    //     RunningHooks.Add(hook);
 
-        Detour.DetourAttach(hook.PinnedMethod.AddrOfPinnedObject(), hook.InvokeAddr);
-    }
+    //     Detour.DetourAttach(hook.PinnedMethod.AddrOfPinnedObject(), hook.InvokeAddr);
+    // }
 
-    public static void Start(ScriptBlockHook[] hooks)
+    public static void Start(IEnumerable<ScriptBlockHook> hooks)
     {
         if (RunningHooks.Count > 0)
         {
@@ -96,7 +98,7 @@ public static class Hook
         }
     }
 
-    public static void End()
+    public static void Stop()
     {
         using var _ = Detour.DetourTransactionBegin();
         Detour.DetourUpdateThread(Kernel32.GetCurrentThread());
@@ -110,65 +112,91 @@ public static class Hook
         RunningHooks.Clear();
     }
 
-    // [UnmanagedFunctionPointer(CallingConvention.Winapi)]
-    public delegate IntPtr OpenSCManagerDelegate(IntPtr machineName, IntPtr databaseName, int desiredAccess);
+    // public delegate IntPtr OpenSCManagerDelegate(IntPtr machineName, IntPtr databaseName, int desiredAccess);
 
-    public static IntPtr OpenSCManagerFunc(IntPtr machineName, IntPtr databaseName, int desiredAccess)
-    {
-        RunningHook hook = RunningHooks[0];
-        OpenSCManagerDelegate dele = Marshal.GetDelegateForFunctionPointer<OpenSCManagerDelegate>(
-            Marshal.ReadIntPtr(hook.PinnedMethod.AddrOfPinnedObject()));
-        IntPtr res = dele(machineName, databaseName, desiredAccess);
+    // public static IntPtr OpenSCManagerFunc(IntPtr machineName, IntPtr databaseName, int desiredAccess)
+    // {
+    //     RunningHook hook = RunningHooks[0];
+    //     OpenSCManagerDelegate dele = Marshal.GetDelegateForFunctionPointer<OpenSCManagerDelegate>(
+    //         Marshal.ReadIntPtr(hook.PinnedMethod.AddrOfPinnedObject()));
+    //     IntPtr res = dele(machineName, databaseName, desiredAccess);
 
-        return res;
-    }
+    //     return res;
+    // }
 
-    public delegate int GetCurrentProcessIdDelegate();
+    // public delegate int GetCurrentProcessIdDelegate();
 
-    public static int GetCurrentProcessIdFunc()
-    {
-        RunningHook hook = RunningHooks[0];
-        GetCurrentProcessIdDelegate dele = Marshal.GetDelegateForFunctionPointer<GetCurrentProcessIdDelegate>(
-            Marshal.ReadIntPtr(hook.PinnedMethod.AddrOfPinnedObject()));
-        int res = dele();
+    // public static int GetCurrentProcessIdFunc()
+    // {
+    //     RunningHook hook = RunningHooks[0];
+    //     GetCurrentProcessIdDelegate dele = Marshal.GetDelegateForFunctionPointer<GetCurrentProcessIdDelegate>(
+    //         Marshal.ReadIntPtr(hook.PinnedMethod.AddrOfPinnedObject()));
+    //     int res = dele();
 
-        return res;
-    }
+    //     return res;
+    // }
 
-    public delegate void SleepDelegate(int milliseconds);
+    // public delegate void SleepDelegate(int milliseconds);
 
-    public static void SleepFunc(int milliseconds)
-    {
-        RunningHook hook = RunningHooks[0];
-        SleepDelegate dele = Marshal.GetDelegateForFunctionPointer<SleepDelegate>(
-            Marshal.ReadIntPtr(hook.PinnedMethod.AddrOfPinnedObject()));
-        dele(milliseconds);
+    // public static void SleepFunc(int milliseconds)
+    // {
+    //     RunningHook hook = RunningHooks[0];
+    //     SleepDelegate dele = Marshal.GetDelegateForFunctionPointer<SleepDelegate>(
+    //         Marshal.ReadIntPtr(hook.PinnedMethod.AddrOfPinnedObject()));
+    //     dele(milliseconds);
 
-        return;
-    }
+    //     return;
+    // }
 
-    [DllImport("Advapi32.dll")]
-    public static extern IntPtr OpenSCManagerW(
-        IntPtr lpMachineName,
-        IntPtr lpDatabaseName,
-        int dwDesiredAccess);
+    // public delegate IntPtr CreateFileDelegate(
+    //     [MarshalAs(UnmanagedType.LPWStr)] string lpFileName,
+    //     int dwDesiredAccess,
+    //     int dwShareMode,
+    //     IntPtr lpSecurityAttributes,
+    //     int dwCreationDisposition,
+    //     int dwFlagsAndAttributes,
+    //     IntPtr hTemplateFile);
 
-    [DllImport("Advapi32.dll")]
-    public static extern bool OpenProcessToken(
-        IntPtr ProcessHandle,
-        int DesiredAccess,
-        out IntPtr TokenHandle);
+    // public static IntPtr CreateFileFunc(
+    //     string lpFileName,
+    //     int dwDesiredAccess,
+    //     int dwShareMode,
+    //     IntPtr lpSecurityAttributes,
+    //     int dwCreationDisposition,
+    //     int dwFlagsAndAttributes,
+    //     IntPtr hTemplateFile)
+    // {
+    //     RunningHook hook = RunningHooks[0];
+    //     CreateFileDelegate dele = Marshal.GetDelegateForFunctionPointer<CreateFileDelegate>(
+    //         Marshal.ReadIntPtr(hook.PinnedMethod.AddrOfPinnedObject()));
+    //     IntPtr res = dele(lpFileName, dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition,
+    //          dwFlagsAndAttributes, hTemplateFile);
 
-    [DllImport("Kernel32.dll")]
-    public static extern IntPtr OpenProcess(
-        int dwDesiredAccess,
-        bool bInheritHandle,
-        int dwProcessId);
+    //     return res;
+    // }
 
-    [DllImport("Kernel32.dll")]
-    public static extern int GetCurrentProcessId();
+    // [DllImport("Advapi32.dll")]
+    // public static extern IntPtr OpenSCManagerW(
+    //     IntPtr lpMachineName,
+    //     IntPtr lpDatabaseName,
+    //     int dwDesiredAccess);
 
-    [DllImport("Kernel32.dll")]
-    public static extern void Sleep(
-        int dwMilliseconds);
+    // [DllImport("Advapi32.dll")]
+    // public static extern bool OpenProcessToken(
+    //     IntPtr ProcessHandle,
+    //     int DesiredAccess,
+    //     out IntPtr TokenHandle);
+
+    // [DllImport("Kernel32.dll")]
+    // public static extern IntPtr OpenProcess(
+    //     int dwDesiredAccess,
+    //     bool bInheritHandle,
+    //     int dwProcessId);
+
+    // [DllImport("Kernel32.dll")]
+    // public static extern int GetCurrentProcessId();
+
+    // [DllImport("Kernel32.dll")]
+    // public static extern void Sleep(
+    //     int dwMilliseconds);
 }

@@ -12,12 +12,14 @@ See [about_PSDetour](docs/en-US/about_PSDetour.md) for more details.
 
 Documentation for this module and details on the cmdlets included can be found [here](docs/en-US/PSDetour.md).
 
+This module is highly experimental and misuse can crash the process you are hooking.
+Currently it can only target x64 based processes on Windows.
+
 ## Requirements
 
 These cmdlets have the following requirements
 
-* PowerShell v5.1 or newer
-* .NET Framework 4.7.2+ or .NET Core+
+* PowerShell v7.2 or newer
 * Windows Server 2008 R2/Windows 7 or newer
 
 ## Installing

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Management.Automation;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -72,7 +73,8 @@ internal class ScriptBlockDelegate
     public delegate T InvokeDelegate(...);
     */
 
-    public static ScriptBlockDelegate Create(string dllName, string methodName, Type returnType, Type[] parameters)
+    public static ScriptBlockDelegate Create(string dllName, string methodName, TypeInformation returnType,
+        TypeInformation[] parameters)
     {
         string typeName = $"{dllName}.{methodName}-{Guid.NewGuid()}";
         string delegateName = $"{typeName}Delegate";
@@ -89,9 +91,10 @@ internal class ScriptBlockDelegate
         );
     }
 
-    private static Type CreateRunnerClass(string typeName, Type returnType, Type[] parameters, Type contextType)
+    private static Type CreateRunnerClass(string typeName, TypeInformation returnType, TypeInformation[] parameters,
+        Type contextType)
     {
-        TypeBuilder tb = GlobalState.Builder.DefineType(
+        TypeBuilder tb = ReflectionInfo.Module.DefineType(
             typeName,
             System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
 
@@ -109,19 +112,19 @@ internal class ScriptBlockDelegate
             "Invoke",
             System.Reflection.MethodAttributes.Static | System.Reflection.MethodAttributes.Public,
             CallingConventions.Standard,
-            returnType,
-            parameters);
+            returnType.Type,
+            parameters.Select(p => p.Type).ToArray());
 
         for (int i = 0; i < parameters.Length; i++)
         {
-            mb.DefineParameter(i + 1, ParameterAttributes.None, $"arg{i}");
+            CreateParameter(mb, i + 1, parameters[i]);
         }
 
         ILGenerator il = mb.GetILGenerator();
 
         LocalBuilder varSbkVars = il.DeclareLocal(typeof(List<PSVariable>));
         LocalBuilder? varResult = null;
-        if (returnType != typeof(void))
+        if (returnType.Type != typeof(void))
         {
             varResult = il.DeclareLocal(typeof(Collection<PSObject>));
         }
@@ -130,9 +133,9 @@ internal class ScriptBlockDelegate
         // For easier referencing we use a null placeholder for other types
         // so it can be accessed by
         List<ReferenceLocal?> referenceTypes = new();
-        foreach (Type p in parameters)
+        foreach (TypeInformation p in parameters)
         {
-            Type? elementType = p.GetElementType();
+            Type? elementType = p.Type.GetElementType();
             if (elementType == null)
             {
                 referenceTypes.Add(null);
@@ -161,12 +164,12 @@ internal class ScriptBlockDelegate
                 new PSVariable("this", Action),
             };
         */
-        il.Emit(OpCodes.Newobj, GlobalState.ListCtor);
+        il.Emit(OpCodes.Newobj, ReflectionInfo.ListPSVarCtor);
         il.Emit(OpCodes.Dup);
         il.Emit(OpCodes.Ldstr, "this");
         il.Emit(OpCodes.Ldsfld, thisContextField);
-        il.Emit(OpCodes.Newobj, GlobalState.PSVarCtor);
-        il.Emit(OpCodes.Callvirt, GlobalState.ListAdd);
+        il.Emit(OpCodes.Newobj, ReflectionInfo.PSVarCtor);
+        il.Emit(OpCodes.Callvirt, ReflectionInfo.ListPSVarAddFunc);
         il.Emit(OpCodes.Stloc, varSbkVars);
 
         /*
@@ -211,7 +214,7 @@ internal class ScriptBlockDelegate
             if (nullableInfo == null)
             {
                 il.Emit(OpCodes.Ldarg, i);
-                il.Emit(OpCodes.Box, parameters[i]);
+                il.Emit(OpCodes.Box, parameters[i].Type);
             }
             else
             {
@@ -223,7 +226,7 @@ internal class ScriptBlockDelegate
             il.Emit(OpCodes.Stelem_Ref);
         }
 
-        il.Emit(OpCodes.Callvirt, GlobalState.SbkInvokeWithContext);
+        il.Emit(OpCodes.Callvirt, ReflectionInfo.SbkInvokeWithContextFunc);
 
         if (varResult != null)
         {
@@ -247,13 +250,13 @@ internal class ScriptBlockDelegate
         {
             LocalBuilder varCount = il.DeclareLocal(typeof(int));
             LocalBuilder varUncastedResult = il.DeclareLocal(typeof(object));
-            LocalBuilder varReturn = il.DeclareLocal(returnType);
+            LocalBuilder varReturn = il.DeclareLocal(returnType.Type);
 
             /*
                 int count = varResult.Count;
             */
             il.Emit(OpCodes.Ldloc, varResult);
-            il.Emit(OpCodes.Callvirt, GlobalState.CollectionCount);
+            il.Emit(OpCodes.Callvirt, ReflectionInfo.CollectionPSObjCountFunc);
             il.Emit(OpCodes.Stloc, varCount);
 
             /*
@@ -275,16 +278,16 @@ internal class ScriptBlockDelegate
             il.Emit(OpCodes.Ldloc, varCount);
             il.Emit(OpCodes.Ldc_I4_1);
             il.Emit(OpCodes.Sub);
-            il.Emit(OpCodes.Callvirt, GlobalState.CollectionGetItem);
-            il.Emit(OpCodes.Callvirt, GlobalState.PSObjectBaseObject);
+            il.Emit(OpCodes.Callvirt, ReflectionInfo.CollectionPSObjGetItemFunc);
+            il.Emit(OpCodes.Callvirt, ReflectionInfo.PSObjectBaseObjectFunc);
             il.Emit(OpCodes.Stloc, varUncastedResult);
             il.Emit(OpCodes.Ldloc, varUncastedResult);
 
-            il.Emit(OpCodes.Isinst, returnType);
+            il.Emit(OpCodes.Isinst, returnType.Type);
             il.Emit(OpCodes.Brfalse, defaultVal);
 
             il.Emit(OpCodes.Ldloc, varUncastedResult);
-            il.Emit(OpCodes.Unbox_Any, returnType);
+            il.Emit(OpCodes.Unbox_Any, returnType.Type);
             il.Emit(OpCodes.Stloc, varReturn);
             il.Emit(OpCodes.Ldloc, varReturn);
             il.Emit(OpCodes.Ret);
@@ -305,9 +308,10 @@ internal class ScriptBlockDelegate
         return tb.CreateType()!;
     }
 
-    private static Type CreateDelegateClass(string typeName, Type returnType, Type[] parameters)
+    private static Type CreateDelegateClass(string typeName, TypeInformation returnType,
+        TypeInformation[] parameters)
     {
-        TypeBuilder tb = GlobalState.Builder.DefineType(
+        TypeBuilder tb = ReflectionInfo.Module.DefineType(
             typeName,
             TypeAttributes.Sealed | TypeAttributes.Public,
             typeof(MulticastDelegate));
@@ -320,22 +324,22 @@ internal class ScriptBlockDelegate
         MethodBuilder invokeMethod = tb.DefineMethod(
             "Invoke",
             MethodAttributes.HideBySig | MethodAttributes.Virtual | MethodAttributes.Public,
-            returnType,
-            parameters);
+            returnType.Type,
+            parameters.Select(p => p.Type).ToArray());
         invokeMethod.SetImplementationFlags(MethodImplAttributes.CodeTypeMask);
 
-        for (int i = 1; i <= parameters.Length; i++)
+        for (int i = 0; i < parameters.Length; i++)
         {
-            invokeMethod.DefineParameter(i, ParameterAttributes.None, $"arg{i}");
+            CreateParameter(invokeMethod, i + 1, parameters[i]);
         }
 
         return tb.CreateType()!;
     }
 
-    private static Type CreateThisContextClass(string typeName, Type returnType, Type[] parameters,
-        Type delegateType, MethodInfo delegateMethod)
+    private static Type CreateThisContextClass(string typeName, TypeInformation returnType,
+        TypeInformation[] parameters, Type delegateType, MethodInfo delegateMethod)
     {
-        TypeBuilder tb = GlobalState.Builder.DefineType(
+        TypeBuilder tb = ReflectionInfo.Module.DefineType(
             typeName,
             System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
 
@@ -348,12 +352,12 @@ internal class ScriptBlockDelegate
             "Invoke",
             System.Reflection.MethodAttributes.Public,
             CallingConventions.Standard,
-            returnType,
-            parameters);
+            returnType.Type,
+            parameters.Select(p => p.Type).ToArray());
 
-        for (int i = 1; i <= parameters.Length; i++)
+        for (int i = 0; i < parameters.Length; i++)
         {
-            mb.DefineParameter(i, ParameterAttributes.None, $"arg{i}");
+            CreateParameter(mb, i + 1, parameters[i]);
         }
 
         ILGenerator il = mb.GetILGenerator();
@@ -362,9 +366,9 @@ internal class ScriptBlockDelegate
 
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Ldflda, originalMethodField);
-        il.Emit(OpCodes.Call, GlobalState.AddrOfPinnedObj);
+        il.Emit(OpCodes.Call, ReflectionInfo.AddrOfPinnedObjFunc);
         il.Emit(OpCodes.Ldind_I);
-        il.Emit(OpCodes.Call, GlobalState.GetDelegateForFunc.MakeGenericMethod(new[] { delegateType }));
+        il.Emit(OpCodes.Call, ReflectionInfo.GetDelegateForFunc.MakeGenericMethod(new[] { delegateType }));
         for (int i = 1; i <= parameters.Length; i++)
         {
             il.Emit(OpCodes.Ldarg, i);
@@ -373,6 +377,35 @@ internal class ScriptBlockDelegate
         il.Emit(OpCodes.Ret);
 
         return tb.CreateType()!;
+    }
+
+    private static ParameterBuilder CreateParameter(MethodBuilder method, int position, TypeInformation typeInfo)
+    {
+        ParameterAttributes attrs = ParameterAttributes.None;
+        List<CustomAttributeBuilder> customAttrs = new();
+        if (typeInfo.MarshalAs is MarshalAsAttribute marshalAs)
+        {
+            attrs |= ParameterAttributes.HasFieldMarshal;
+            customAttrs.Add(new CustomAttributeBuilder(
+                ReflectionInfo.MarshalAsCtor,
+                new object[] { marshalAs.Value }));
+        }
+        if (typeInfo.IsIn)
+        {
+            throw new NotImplementedException();
+        }
+        if (typeInfo.IsOut)
+        {
+            throw new NotImplementedException();
+        }
+
+        ParameterBuilder pb = method.DefineParameter(position, attrs, $"arg{position}");
+        foreach (CustomAttributeBuilder custom in customAttrs)
+        {
+            pb.SetCustomAttribute(custom);
+        }
+
+        return pb;
     }
 }
 
@@ -404,5 +437,21 @@ public class Ref<T> where T : unmanaged
     {
         get => *_ptr; // do null check and throw if now out of scope
         set => *_ptr = value;
+    }
+}
+
+public class TypeInformation
+{
+    public Type Type { get; }
+    public bool IsIn { get; }
+    public bool IsOut { get; }
+    public MarshalAsAttribute? MarshalAs { get; }
+
+    public TypeInformation(Type type, MarshalAsAttribute? marshalAs = null, bool isIn = false, bool isOut = false)
+    {
+        Type = type;
+        MarshalAs = marshalAs;
+        IsIn = isIn;
+        IsOut = isOut;
     }
 }

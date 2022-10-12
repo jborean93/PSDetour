@@ -11,37 +11,37 @@
 @{
 
     # Script module or binary module file associated with this manifest.
-    RootModule             = 'bin/net6.0-windows/PSDetour.dll'
+    RootModule        = 'bin/net6.0-windows/PSDetour.dll'
 
     # Version number of this module.
-    ModuleVersion          = '0.1.0'
+    ModuleVersion     = '0.1.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
 
     # ID used to uniquely identify this module
-    GUID                   = '117ef06b-f8fc-45ac-9af3-a1be0c82a1ce'
+    GUID              = '117ef06b-f8fc-45ac-9af3-a1be0c82a1ce'
 
     # Author of this module
-    Author                 = 'Jordan Borean'
+    Author            = 'Jordan Borean'
 
     # Company or vendor of this module
-    CompanyName            = 'Community'
+    CompanyName       = 'Community'
 
     # Copyright statement for this module
-    Copyright              = '(c) 2022 Jordan Borean. All rights reserved.'
+    Copyright         = '(c) 2022 Jordan Borean. All rights reserved.'
 
     # Description of the functionality provided by this module
-    Description            = 'Hook Win32 APIs in PowerShell.`nSee https://github.com/jborean93/PSDetour for more info'
+    Description       = 'Hook Win32 APIs in PowerShell.`nSee https://github.com/jborean93/PSDetour for more info'
 
     # Minimum version of the PowerShell engine required by this module
-    PowerShellVersion      = '5.1'
+    PowerShellVersion = '7.2'
 
     # Minimum version of Microsoft .NET Framework required by this module. This prerequisite is valid for the PowerShell Desktop edition only.
-    DotNetFrameworkVersion = '4.7.2'
+    # DotNetFrameworkVersion = '6.0'
 
     # Minimum version of the common language runtime (CLR) required by this module. This prerequisite is valid for the PowerShell Desktop edition only.
-    ClrVersion             = '4.0'
+    # ClrVersion             = '6.0'
 
     # Processor architecture (None, X86, Amd64) required by this module
     # ProcessorArchitecture = ''
@@ -56,31 +56,33 @@
     # ScriptsToProcess = @()
 
     # Type files (.ps1xml) to be loaded when importing this module
-    TypesToProcess         = @()
+    TypesToProcess    = @()
 
     # Format files (.ps1xml) to be loaded when importing this module
     # FormatsToProcess = @()
 
     # Modules to import as nested modules of the module specified in RootModule/ModuleToProcess
-    NestedModules          = @()
+    NestedModules     = @()
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-    FunctionsToExport      = @()
+    FunctionsToExport = @()
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
-    CmdletsToExport        = @(
+    CmdletsToExport   = @(
         'New-PSDetourHook'
         'New-PSDetourSession'
+        'Start-PSDetour'
+        'Stop-PSDetour'
     )
 
     # Variables to export from this module
-    VariablesToExport      = @()
+    VariablesToExport = @()
 
     # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
-    AliasesToExport        = @()
+    AliasesToExport   = @()
 
     # Private data to pass to the module specified in RootModule/ModuleToProcess. This may also contain a PSData hashtable with additional module metadata used by PowerShell.
-    PrivateData            = @{
+    PrivateData       = @{
 
         PSData = @{
 
