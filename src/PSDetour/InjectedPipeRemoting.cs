@@ -60,8 +60,8 @@ internal sealed class InjectedPipeClientSessionTransportManager : NamedPipeClien
         _remoteProcess = Kernel32.OpenProcess(_connectionInfo.ProcessId, procRights, false);
 
         // Load PSDetourNative.dll in the target process
-        _psdetourNativeMod = LoadRemoteLibrary(_remoteProcess, PSDetourNative.NativePath);
-        IntPtr remoteInjectAddr = PSDetourNative.GetRemoteInjectAddr(_psdetourNativeMod.DangerousGetHandle());
+        _psdetourNativeMod = LoadRemoteLibrary(_remoteProcess, GlobalState.NativePath);
+        IntPtr remoteInjectAddr = GlobalState.GetRemoteInjectAddr(_psdetourNativeMod.DangerousGetHandle());
 
         // Create anon pipes for in/out and duplicate into remote process
         using SafeProcessHandle currentProcess = Kernel32.GetCurrentProcess();
@@ -117,14 +117,14 @@ internal sealed class InjectedPipeClientSessionTransportManager : NamedPipeClien
         clientPipe.Dispose();
 
         // Build arg struct to remote process
-        byte[] pwshAssemblyBytes = Encoding.Unicode.GetBytes(PSDetourNative.PwshAssemblyDir);
+        byte[] pwshAssemblyBytes = Encoding.Unicode.GetBytes(GlobalState.PwshAssemblyDir);
         _pwshAssemblyMem = WriteProcessMemory(_remoteProcess, pwshAssemblyBytes);
 
         WorkerArgs remoteArgs = new()
         {
             Pipe = _remotePipe.DangerousGetHandle(),
             PowerShellDir = _pwshAssemblyMem.DangerousGetHandle(),
-            PowerShellDirCount = PSDetourNative.PwshAssemblyDir.Length,
+            PowerShellDirCount = GlobalState.PwshAssemblyDir.Length,
         };
         unsafe
         {
@@ -186,7 +186,7 @@ internal sealed class InjectedPipeClientSessionTransportManager : NamedPipeClien
         byte[] moduleBytes = Encoding.Unicode.GetBytes(module);
         using (SafeRemoteMemory remoteArgAddr = WriteProcessMemory(process, moduleBytes))
         {
-            using SafeNativeHandle thread = CreateRemoteThread(process, PSDetourNative.LoadLibraryAddr.Value,
+            using SafeNativeHandle thread = CreateRemoteThread(process, GlobalState.LoadLibraryAddr.Value,
                 remoteArgAddr.DangerousGetHandle());
             Kernel32.WaitForSingleObject(thread, Kernel32.INFINITE);
         }

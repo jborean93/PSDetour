@@ -534,7 +534,7 @@ internal class SafeRemoteLoadedLibrary : SafeHandle
         using SafeNativeHandle thread = Kernel32.CreateRemoteThread(
             _process,
             0,
-            PSDetourNative.FreeLibraryAddr.Value,
+            GlobalState.FreeLibraryAddr.Value,
             handle,
             ThreadCreationFlags.None,
             out var _);
