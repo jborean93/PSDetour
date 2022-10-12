@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
 using System.Management.Automation;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -11,26 +10,25 @@ namespace PSDetour;
 
 internal class ScriptBlockDelegate
 {
-    private readonly Delegate _nativeDelegate;
+    public Type RunnerType;
+    public Type ContextType;
+    public Delegate NativeDelegate;
 
-    public IntPtr OriginalMethod { get; internal set; }
-    public IntPtr NativeAddr { get; internal set; }
-
-    internal ScriptBlockDelegate(Delegate invokeDelegate, IntPtr originalMethod)
+    internal ScriptBlockDelegate(Type runnerType, Type contextType, Delegate nativeDelegate)
     {
-        _nativeDelegate = invokeDelegate;
-        OriginalMethod = originalMethod;
-        NativeAddr = Marshal.GetFunctionPointerForDelegate(_nativeDelegate);
+        RunnerType = runnerType;
+        ContextType = contextType;
+        NativeDelegate = nativeDelegate;
     }
 
     /*
     Create will generate a dynamic method and delegate based on the
     arg type and return types. The generated type looks something like this.
 
-    public class NativeMethod
+    public static class NativeMethod
     {
-        private ScriptBlock Action;
-        private IntPtr ThisContext;
+        private static ScriptBlock Action;
+        private static NativeContext ThisContext;
 
         public static T Invoke(...)
         {
@@ -39,7 +37,7 @@ internal class ScriptBlockDelegate
                 new PSVariable("this", ThisContext),
             };
 
-            var varResult;
+            Collection<PSObject> varResult;
             fixed (T* ... = ...) // fixes all ref arguments
             {
                 varResult = Action.InvokeWithContext(null, varSbkVars, new object[] { ... });
@@ -57,12 +55,42 @@ internal class ScriptBlockDelegate
         }
     }
 
-    public static delegate T InvokeDelegate(...);
+    public class NativeContext
+    {
+        private GCHandle OriginalMethod;
+
+        private NativeContext() { }
+
+        public T Invoke(...)
+        {
+            return Marshal.GetDelegateForFunctionPointer<InvokeDelegate>(
+                OriginalMethod.AddrOfPinnedObject()
+            )(...);
+        }
+    }
+
+    public delegate T InvokeDelegate(...);
     */
 
-    public static ScriptBlockDelegate Create(string dllName, string methodName, Type returnType, Type[] parameters, ScriptBlock action)
+    public static ScriptBlockDelegate Create(string dllName, string methodName, Type returnType, Type[] parameters)
     {
-        string typeName = $"{dllName}.{methodName}";
+        string typeName = $"{dllName}.{methodName}-{Guid.NewGuid()}";
+        string delegateName = $"{typeName}Delegate";
+
+        Type delegateType = CreateDelegateClass(delegateName, returnType, parameters);
+        Type thisContextType = CreateThisContextClass($"{typeName}Invoke", returnType, parameters,
+            delegateType.GetMethod("Invoke")!);
+        Type runnerType = CreateRunnerClass(typeName, returnType, parameters, thisContextType);
+
+        return new(
+            runnerType,
+            thisContextType,
+            Delegate.CreateDelegate(delegateType, null, runnerType.GetMethod("Invoke")!)
+        );
+    }
+
+    private static Type CreateRunnerClass(string typeName, Type returnType, Type[] parameters, Type contextType)
+    {
         TypeBuilder tb = GlobalState.Builder.DefineType(
             typeName,
             System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
@@ -72,10 +100,9 @@ internal class ScriptBlockDelegate
             typeof(ScriptBlock),
             FieldAttributes.Private | FieldAttributes.Static);
 
-        // FIXME: This should be the $this object that can invoke the actual method
         FieldBuilder thisContextField = tb.DefineField(
             "ThisContext",
-            typeof(IntPtr),
+            contextType,
             FieldAttributes.Private | FieldAttributes.Static);
 
         MethodBuilder mb = tb.DefineMethod(
@@ -137,10 +164,8 @@ internal class ScriptBlockDelegate
         il.Emit(OpCodes.Dup);
         il.Emit(OpCodes.Ldstr, "this");
         il.Emit(OpCodes.Ldsfld, thisContextField);
-        il.Emit(OpCodes.Box, typeof(IntPtr));
         il.Emit(OpCodes.Newobj, GlobalState.PSVarCtor);
         il.Emit(OpCodes.Callvirt, GlobalState.ListAdd);
-        il.Emit(OpCodes.Nop);
         il.Emit(OpCodes.Stloc, varSbkVars);
 
         /*
@@ -260,20 +285,13 @@ internal class ScriptBlockDelegate
         il.Emit(OpCodes.Ldc_I4_0);
         il.Emit(OpCodes.Ret);
 
-        Type newType = tb.CreateType()!;
-        Delegate invokeDelegate = CreateDelegateType(typeName, newType.GetMethod("Invoke")!);
-
-        IntPtr originalMethod = GlobalState.GetProcAddress(dllName, methodName);
-        newType.GetField("Action", BindingFlags.NonPublic | BindingFlags.Static)?.SetValue(null, action);
-        newType.GetField("ThisContext", BindingFlags.NonPublic | BindingFlags.Static)?.SetValue(null, originalMethod);
-
-        return new(invokeDelegate, originalMethod);
+        return tb.CreateType()!;
     }
 
-    private static Delegate CreateDelegateType(string typeName, MethodInfo method)
+    private static Type CreateDelegateClass(string typeName, Type returnType, Type[] parameters)
     {
         TypeBuilder tb = GlobalState.Builder.DefineType(
-            $"{typeName}Delegate",
+            typeName,
             TypeAttributes.Sealed | TypeAttributes.Public,
             typeof(MulticastDelegate));
 
@@ -282,22 +300,68 @@ internal class ScriptBlockDelegate
             CallingConventions.Standard, new[] { typeof(object), typeof(IntPtr) });
         ctorBulder.SetImplementationFlags(MethodImplAttributes.CodeTypeMask);
 
-        ParameterInfo[] parameters = method.GetParameters();
-
         MethodBuilder invokeMethod = tb.DefineMethod(
             "Invoke",
             MethodAttributes.HideBySig | MethodAttributes.Virtual | MethodAttributes.Public,
-            method.ReturnType,
-            parameters.Select(p => p.ParameterType).ToArray());
+            returnType,
+            parameters);
         invokeMethod.SetImplementationFlags(MethodImplAttributes.CodeTypeMask);
 
-        for (int i = 0; i < parameters.Length; i++)
+        for (int i = 1; i <= parameters.Length; i++)
         {
-            var parameter = parameters[i];
-            invokeMethod.DefineParameter(i + 1, ParameterAttributes.None, parameter.Name);
+            invokeMethod.DefineParameter(i, ParameterAttributes.None, $"arg{i}");
         }
 
-        return Delegate.CreateDelegate(tb.CreateType()!, null, method);
+        return tb.CreateType()!;
+    }
+
+    private static Type CreateThisContextClass(string typeName, Type returnType, Type[] parameters,
+        MethodInfo delegateMethod)
+    {
+        TypeBuilder tb = GlobalState.Builder.DefineType(
+            typeName,
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+
+        FieldBuilder originalMethodField = tb.DefineField(
+            "OriginalMethod",
+            typeof(GCHandle),
+            FieldAttributes.Private);
+
+        FieldBuilder originalMethodField2 = tb.DefineField(
+            "OriginalMethod2",
+            typeof(IntPtr),
+            FieldAttributes.Private);
+
+        MethodBuilder mb = tb.DefineMethod(
+            "Invoke",
+            System.Reflection.MethodAttributes.Public,
+            CallingConventions.Standard,
+            returnType,
+            parameters);
+
+        for (int i = 1; i <= parameters.Length; i++)
+        {
+            mb.DefineParameter(i, ParameterAttributes.None, $"arg{i}");
+        }
+
+        ILGenerator il = mb.GetILGenerator();
+
+        MethodInfo readIntPtr = typeof(Marshal).GetMethod("ReadIntPtr", new[] { typeof(IntPtr) })!;
+
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldflda, originalMethodField);
+        il.Emit(OpCodes.Call, GlobalState.AddrOfPinnedObj);
+        // il.Emit(OpCodes.Ldflda, originalMethodField2);
+        // il.Emit(OpCodes.Call, readIntPtr);
+        il.Emit(OpCodes.Call, GlobalState.GetDelegateForFunc);
+        for (int i = 1; i <= parameters.Length; i++)
+        {
+            il.Emit(OpCodes.Ldarg, i);
+        }
+        il.Emit(OpCodes.Callvirt, delegateMethod);
+        il.Emit(OpCodes.Ret);
+
+        return tb.CreateType()!;
     }
 }
 

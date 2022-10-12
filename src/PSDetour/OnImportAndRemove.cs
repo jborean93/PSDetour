@@ -9,6 +9,7 @@ using System.Management.Automation;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace PSDetour;
 
@@ -17,8 +18,10 @@ internal static class GlobalState
     private static ModuleBuilder? _builder = null;
     private static ConstructorInfo? _listCtor = null;
     private static ConstructorInfo? _psvarCtor = null;
+    private static MethodInfo? _addrOfPinnedObj = null;
     private static MethodInfo? _collectionCount = null;
     private static MethodInfo? _collectionGetItem = null;
+    private static MethodInfo? _getDelegateForFunc = null;
     private static MethodInfo? _listAdd = null;
     private static MethodInfo? _psobjBaseObject = null;
     private static MethodInfo? _sbkInvokeWithContext = null;
@@ -33,8 +36,6 @@ internal static class GlobalState
     public static readonly Lazy<IntPtr> FreeLibraryAddr = new(() => GetProcAddress("Kernel32.dll", "FreeLibrary"));
 
     public static Dictionary<string, SafeLoadedLibrary> LoadedLibraries { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-    public static Dictionary<string, ScriptBlockDelegate> NativeDelegates { get; } = new();
 
     public static ModuleBuilder Builder
     {
@@ -91,6 +92,22 @@ internal static class GlobalState
         }
     }
 
+    public static MethodInfo AddrOfPinnedObj
+    {
+        get
+        {
+            if (_addrOfPinnedObj == null)
+            {
+                _addrOfPinnedObj = typeof(GCHandle).GetMethod(
+                    "AddrOfPinnedObject",
+                    new Type[0])!;
+
+            }
+
+            return _addrOfPinnedObj;
+        }
+    }
+
     public static MethodInfo CollectionCount
     {
         get
@@ -117,6 +134,22 @@ internal static class GlobalState
             }
 
             return _collectionGetItem;
+        }
+    }
+
+    public static MethodInfo GetDelegateForFunc
+    {
+        get
+        {
+            if (_getDelegateForFunc == null)
+            {
+                _getDelegateForFunc = typeof(Marshal).GetMethod(
+                    "GetDelegateForFunctionPointer",
+                    new[] { typeof(IntPtr) })!;
+
+            }
+
+            return _getDelegateForFunc;
         }
     }
 

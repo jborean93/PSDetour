@@ -5,7 +5,11 @@ $hooks = @(
 
         Write-Host "OpenSCManagerW MachineName($MachineName) DatabaseName($DatabaseName) Access($Access)"
 
-        [IntPtr]10
+        $res = $this.Invoke($MachineName, $DatabaseName, $Access)
+        Write-Host "OpenSCManagerW res - $($this.Invoke)"
+        # $res = [IntPtr]10
+
+        $res
     }
     New-PSDetourHook -DllName Kernel32 -MethodName OpenProcess -Action {
         [OutputType([IntPtr])]
@@ -31,10 +35,10 @@ $hooks = @(
 
 [PSDetour.Hook]::OpenSCManagerW([IntPtr]1, [IntPtr]2, 3)
 
-[PSDetour.Hook]::OpenProcess(20, $true, 192)
+# [PSDetour.Hook]::OpenProcess(20, $true, 192)
 
-$token = [IntPtr]5
-[PSDetour.Hook]::OpenProcessToken([IntPtr]1, 2, [ref]$token)
-$token
+# $token = [IntPtr]5
+# [PSDetour.Hook]::OpenProcessToken([IntPtr]1, 2, [ref]$token)
+# $token
 
 [PSDetour.Hook]::End()
