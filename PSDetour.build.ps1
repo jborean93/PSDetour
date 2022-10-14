@@ -114,7 +114,7 @@ task Sign {
     }
 
     Get-ChildItem -LiteralPath $ReleasePath -Recurse -ErrorAction SilentlyContinue |
-        Where-Object Extension -in ".ps1", ".psm1", ".psd1", ".ps1xml", ".dll" |
+        Where-Object Extension -In ".ps1", ".psm1", ".psd1", ".ps1xml", ".dll" |
         ForEach-Object -Process {
             $result = Set-AuthenticodeSignature -LiteralPath $_.FullName @signParams
             if ($result.Status -ne "Valid") {
@@ -241,7 +241,7 @@ task DoTest {
         $unitCoveragePath = [IO.Path]::Combine($resultsPath, 'UnitCoverage.json')
 
         $arguments = @(
-            '"{0}"' -f ([IO.Path]::Combine($ReleasePath, $ModuleName, 'bin', $PSFramework))
+            '"{0}"' -f ([IO.Path]::Combine($ReleasePath, 'bin', $PSFramework))
             '--target', $pwsh
             '--targetargs', (($arguments -join " ") -replace '"', '\"')
             '--output', ([IO.Path]::Combine($resultsPath, 'Coverage.xml'))

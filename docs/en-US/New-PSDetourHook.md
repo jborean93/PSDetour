@@ -26,11 +26,11 @@ When the hook is run, the `$this` variable contains information about the hook i
 
 Take care when typing the return and parameter types as a misconfiguration can cause the whole process to crash.
 A parameter can be marked with the `MarshalAs` attribute to denote the marshalling type behaviour to use.
-Currently only the `UnmanagedType` can be set and only for parameters.
+Currently only the `UnmanagedType`, `In`, and `Out` attributes can be set.
 
 ## EXAMPLES
 
-### Example 1 - Hook CreateDirectoryW with string marshaling
+### Example 1 - Hook CreateDirectoryW with string marshalling
 
 ```powershell
 PS C:\> New-PSDetourHook -DllName Kernel32 -MethodName CreateDirectoryW -Action {

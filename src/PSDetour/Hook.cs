@@ -2,31 +2,63 @@ using PSDetour.Commands;
 using PSDetour.Native;
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace PSDetour;
 
 internal sealed class RunningHook : IDisposable
 {
-    public IntPtr InvokeAddr { get; }
-    public Delegate InvokeDelegate { get; }
-    public IntPtr OriginalMethod { get; }
-    public GCHandle PinnedMethod { get; }
+    private bool _isAttached = false;
+
+    /// <summary>The ptr to the delegate that is given to Detours.</summary>
+    public IntPtr DetourMethod { get; }
+
+    /// <summary>
+    /// The delegate that defines how dotnet marshals the native call. This
+    /// delegate is generated dynamically from the input scriptblock and must
+    /// be kept alive for <c>DetourMethod</c> to remain valid.
+    /// <summary>
+    public Delegate DetourDelegate { get; }
+
+    /// <summary>
+    /// Contains the dynamic context object set as the $this variable during
+    /// the hook run. This is also generated dynamically.
+    /// </summary>
     public object InvokeContext { get; }
 
-    public RunningHook(IntPtr invokeAddr, Delegate invokeDelegate, IntPtr originalMethod, object invokeContext)
+    /// <summary>
+    /// Contains a pinned ptr to the address of the original method that is
+    /// being hooked. GCHandle is used to ensure the address of this pointer
+    /// is not moved by the GC as it can be referenced by Detours during the
+    /// lifetime of the hook as it updates the value.
+    /// </summary>
+    public GCHandle OriginalMethod { get; }
+
+    public RunningHook(Delegate detourDelegate, object invokeContext, GCHandle originalMethod)
     {
-        InvokeAddr = invokeAddr;
-        InvokeDelegate = invokeDelegate;
-        OriginalMethod = originalMethod;
+        DetourDelegate = detourDelegate;
+        DetourMethod = Marshal.GetFunctionPointerForDelegate(DetourDelegate);
         InvokeContext = invokeContext;
-        PinnedMethod = GCHandle.Alloc(originalMethod, GCHandleType.Pinned);
+        OriginalMethod = originalMethod;
+    }
+
+    public void Attach()
+    {
+        if (!_isAttached)
+        {
+            Detour.DetourAttach(OriginalMethod.AddrOfPinnedObject(), DetourMethod);
+            _isAttached = true;
+        }
     }
 
     public void Dispose()
     {
-        PinnedMethod.Free();
+        if (_isAttached)
+        {
+            Detour.DetourDetach(OriginalMethod.AddrOfPinnedObject(), DetourMethod);
+            _isAttached = false;
+        }
+        OriginalMethod.Free();
         GC.SuppressFinalize(this);
     }
     ~RunningHook() => Dispose();
@@ -35,27 +67,6 @@ internal sealed class RunningHook : IDisposable
 public static class Hook
 {
     private static List<RunningHook> RunningHooks = new();
-
-    // public static void Start()
-    // {
-    //     using var _ = Detour.DetourTransactionBegin();
-    //     Detour.DetourUpdateThread(Kernel32.GetCurrentThread());
-    //     // IntPtr originalMethod = GlobalState.GetProcAddress("Advapi32.dll", "OpenSCManagerW");
-    //     // IntPtr originalMethod = GlobalState.GetProcAddress("Kernel32.dll", "GetCurrentProcessId");
-    //     // IntPtr originalMethod = GlobalState.GetProcAddress("Kernel32.dll", "Sleep");
-    //     IntPtr originalMethod = GlobalState.GetProcAddress("Kernel32.dll", "CreateFileW");
-
-    //     // Delegate myDelegate = Delegate.CreateDelegate(typeof(OpenSCManagerDelegate), typeof(Hook), "OpenSCManagerFunc");
-    //     // Delegate myDelegate = Delegate.CreateDelegate(typeof(GetCurrentProcessIdDelegate), typeof(Hook), "GetCurrentProcessIdFunc");
-    //     // Delegate myDelegate = Delegate.CreateDelegate(typeof(SleepDelegate), typeof(Hook), "SleepFunc");
-    //     Delegate myDelegate = Delegate.CreateDelegate(typeof(CreateFileDelegate), typeof(Hook), "CreateFileFunc");
-    //     IntPtr invokeDelegate = Marshal.GetFunctionPointerForDelegate(myDelegate);
-
-    //     RunningHook hook = new(invokeDelegate, myDelegate, originalMethod, null);
-    //     RunningHooks.Add(hook);
-
-    //     Detour.DetourAttach(hook.PinnedMethod.AddrOfPinnedObject(), hook.InvokeAddr);
-    // }
 
     public static void Start(IEnumerable<ScriptBlockHook> hooks)
     {
@@ -69,7 +80,7 @@ public static class Hook
 
         foreach (ScriptBlockHook hook in hooks)
         {
-            IntPtr originalMethod = GlobalState.GetProcAddress(hook.DllName, hook.MethodName);
+            IntPtr originalMethodPtr = GlobalState.GetProcAddress(hook.DllName, hook.MethodName);
 
             string hookName = $"{hook.DllName}.{hook.MethodName}";
             ScriptBlockDelegate sbkDelegate = ScriptBlockDelegate.Create(
@@ -78,22 +89,12 @@ public static class Hook
                 hook.ReturnType,
                 hook.ParameterTypes);
 
-            object invokeContext = Activator.CreateInstance(sbkDelegate.ContextType)!;
-            sbkDelegate.RunnerType
-                .GetField("Action", BindingFlags.NonPublic | BindingFlags.Static)
-                ?.SetValue(null, hook.Action);
-            sbkDelegate.RunnerType
-                .GetField("ThisContext", BindingFlags.NonPublic | BindingFlags.Static)
-                ?.SetValue(null, invokeContext);
+            GCHandle originalMethod = GCHandle.Alloc(originalMethodPtr, GCHandleType.Pinned);
+            object invokeContext = sbkDelegate.CreateInvokeContext(originalMethod);
+            Delegate invokeDelegate = sbkDelegate.CreateNativeDelegate(hook.Action, invokeContext);
 
-            IntPtr invokeDelegate = Marshal.GetFunctionPointerForDelegate(sbkDelegate.NativeDelegate);
-
-            RunningHook runningHook = new(invokeDelegate, sbkDelegate.NativeDelegate, originalMethod, invokeContext);
-            sbkDelegate.ContextType.GetField("OriginalMethod", BindingFlags.NonPublic | BindingFlags.Instance)
-                ?.SetValue(invokeContext, runningHook.PinnedMethod);
-
-            Detour.DetourAttach(runningHook.PinnedMethod.AddrOfPinnedObject(), runningHook.InvokeAddr);
-
+            RunningHook runningHook = new(invokeDelegate, invokeContext, originalMethod);
+            runningHook.Attach();
             RunningHooks.Add(runningHook);
         }
     }
@@ -105,98 +106,12 @@ public static class Hook
 
         foreach (RunningHook hook in RunningHooks)
         {
-            Detour.DetourDetach(hook.PinnedMethod.AddrOfPinnedObject(), hook.InvokeAddr);
             hook.Dispose();
         }
 
         RunningHooks.Clear();
     }
 
-    // public delegate IntPtr OpenSCManagerDelegate(IntPtr machineName, IntPtr databaseName, int desiredAccess);
-
-    // public static IntPtr OpenSCManagerFunc(IntPtr machineName, IntPtr databaseName, int desiredAccess)
-    // {
-    //     RunningHook hook = RunningHooks[0];
-    //     OpenSCManagerDelegate dele = Marshal.GetDelegateForFunctionPointer<OpenSCManagerDelegate>(
-    //         Marshal.ReadIntPtr(hook.PinnedMethod.AddrOfPinnedObject()));
-    //     IntPtr res = dele(machineName, databaseName, desiredAccess);
-
-    //     return res;
-    // }
-
-    // public delegate int GetCurrentProcessIdDelegate();
-
-    // public static int GetCurrentProcessIdFunc()
-    // {
-    //     RunningHook hook = RunningHooks[0];
-    //     GetCurrentProcessIdDelegate dele = Marshal.GetDelegateForFunctionPointer<GetCurrentProcessIdDelegate>(
-    //         Marshal.ReadIntPtr(hook.PinnedMethod.AddrOfPinnedObject()));
-    //     int res = dele();
-
-    //     return res;
-    // }
-
-    // public delegate void SleepDelegate(int milliseconds);
-
-    // public static void SleepFunc(int milliseconds)
-    // {
-    //     RunningHook hook = RunningHooks[0];
-    //     SleepDelegate dele = Marshal.GetDelegateForFunctionPointer<SleepDelegate>(
-    //         Marshal.ReadIntPtr(hook.PinnedMethod.AddrOfPinnedObject()));
-    //     dele(milliseconds);
-
-    //     return;
-    // }
-
-    // public delegate IntPtr CreateFileDelegate(
-    //     [MarshalAs(UnmanagedType.LPWStr)] string lpFileName,
-    //     int dwDesiredAccess,
-    //     int dwShareMode,
-    //     IntPtr lpSecurityAttributes,
-    //     int dwCreationDisposition,
-    //     int dwFlagsAndAttributes,
-    //     IntPtr hTemplateFile);
-
-    // public static IntPtr CreateFileFunc(
-    //     string lpFileName,
-    //     int dwDesiredAccess,
-    //     int dwShareMode,
-    //     IntPtr lpSecurityAttributes,
-    //     int dwCreationDisposition,
-    //     int dwFlagsAndAttributes,
-    //     IntPtr hTemplateFile)
-    // {
-    //     RunningHook hook = RunningHooks[0];
-    //     CreateFileDelegate dele = Marshal.GetDelegateForFunctionPointer<CreateFileDelegate>(
-    //         Marshal.ReadIntPtr(hook.PinnedMethod.AddrOfPinnedObject()));
-    //     IntPtr res = dele(lpFileName, dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition,
-    //          dwFlagsAndAttributes, hTemplateFile);
-
-    //     return res;
-    // }
-
-    // [DllImport("Advapi32.dll")]
-    // public static extern IntPtr OpenSCManagerW(
-    //     IntPtr lpMachineName,
-    //     IntPtr lpDatabaseName,
-    //     int dwDesiredAccess);
-
-    // [DllImport("Advapi32.dll")]
-    // public static extern bool OpenProcessToken(
-    //     IntPtr ProcessHandle,
-    //     int DesiredAccess,
-    //     out IntPtr TokenHandle);
-
-    // [DllImport("Kernel32.dll")]
-    // public static extern IntPtr OpenProcess(
-    //     int dwDesiredAccess,
-    //     bool bInheritHandle,
-    //     int dwProcessId);
-
-    // [DllImport("Kernel32.dll")]
-    // public static extern int GetCurrentProcessId();
-
-    // [DllImport("Kernel32.dll")]
-    // public static extern void Sleep(
-    //     int dwMilliseconds);
+    [DllImport("Advapi32.dll")]
+    public static extern bool OpenProcessToken(IntPtr process, int access, out IntPtr token);
 }

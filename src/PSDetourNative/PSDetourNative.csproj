@@ -38,7 +38,7 @@
 
   <Target Name="BuildNativeProject" AfterTargets="Build" DependsOnTargets="PrepareForNativeBuild;MSVCFindCompilerPaths">
     <PropertyGroup>
-      <DetoursPath>%PATH%;$([System.IO.Path]::GetDirectoryName('$(MSVCCompilerPath)'))</DetoursPath>
+      <DetoursPath>$([System.IO.Path]::GetDirectoryName('$(MSVCCompilerPath)'));%PATH%</DetoursPath>
       <DetoursIncPaths>@(MSVCIncludePaths)</DetoursIncPaths>
       <DetoursLibPaths>@(MSVCLibPaths)</DetoursLibPaths>
       <IncPaths>@(MSVCIncludePaths-> '/I &quot;%(RootDir)%(Directory)%(Filename)&quot;', ' ')</IncPaths>

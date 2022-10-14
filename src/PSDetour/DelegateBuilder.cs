@@ -11,22 +11,74 @@ namespace PSDetour;
 
 internal class ScriptBlockDelegate
 {
-    public Type RunnerType;
-    public Type ContextType;
-    public Delegate NativeDelegate;
+    /// <summary>
+    /// The static type that contains the Invoke method that is used to create
+    /// the delegate for dotnet to use with Detours. This is created
+    /// dynamically based on the scriptblock's parameters and output type. It
+    /// also contains some static fields for the hook manager to store further
+    /// state about the hook itself.
+    /// </summary>
+    private Type InvokeType;
 
-    internal ScriptBlockDelegate(Type runnerType, Type contextType, Delegate nativeDelegate)
+    /// <summary>
+    /// The type that is used for the $this variable during the hook
+    /// invocation. It currently only exposes the Invoke method that can be
+    /// used by the hook to call the actual method it is hooking.
+    /// </summary>
+    private Type ContextType;
+
+    /// <summary>
+    /// The type that represents a dotnet delegate that is used by dotnet to
+    /// marshal the data crossing the boundaries between managed and unmanaged
+    /// code.
+    /// </summary>
+    private Type DelegateType;
+
+    internal ScriptBlockDelegate(Type invokeType, Type contextType, Type delegateType)
     {
-        RunnerType = runnerType;
+        InvokeType = invokeType;
         ContextType = contextType;
-        NativeDelegate = nativeDelegate;
+        DelegateType = delegateType;
+    }
+
+    /// <summary>Creates a context object to use for the delegate.</summary>
+    /// <param name="originalMethod">
+    /// The pointer to the original method that is being hook.
+    /// </param>
+    /// <returns>The context object.</returns>
+    internal object CreateInvokeContext(GCHandle originalMethod)
+    {
+        object invokeContext = Activator.CreateInstance(ContextType)!;
+        ContextType
+            .GetField("OriginalMethod", BindingFlags.NonPublic | BindingFlags.Instance)
+            ?.SetValue(invokeContext, originalMethod);
+
+        return invokeContext;
+    }
+
+    /// <summary>Creates a dotnet delegate for the hook.</summary>
+    /// <param name="action">
+    /// The scriptblock that should be run for the hook.
+    /// </param>
+    /// <param name="invokeContext">The context object for the hook.</param>
+    /// <returns>The dotnet delegate to use with Detours.</returns>
+    internal Delegate CreateNativeDelegate(ScriptBlock action, object invokeContext)
+    {
+        InvokeType
+            .GetField("Action", BindingFlags.NonPublic | BindingFlags.Static)
+            ?.SetValue(null, action);
+        InvokeType
+            .GetField("ThisContext", BindingFlags.NonPublic | BindingFlags.Static)
+            ?.SetValue(null, invokeContext);
+
+        return Delegate.CreateDelegate(DelegateType, null, InvokeType.GetMethod("Invoke")!);
     }
 
     /*
     Create will generate a dynamic method and delegate based on the
     arg type and return types. The generated type looks something like this.
 
-    public static class NativeMethod
+    public static class InvokeType
     {
         private static ScriptBlock Action;
         private static NativeContext ThisContext;
@@ -56,7 +108,7 @@ internal class ScriptBlockDelegate
         }
     }
 
-    public class NativeContext
+    public class ContextType
     {
         private GCHandle OriginalMethod;
 
@@ -70,7 +122,7 @@ internal class ScriptBlockDelegate
         }
     }
 
-    public delegate T InvokeDelegate(...);
+    public delegate T DelegateType(...);
     */
 
     public static ScriptBlockDelegate Create(string dllName, string methodName, TypeInformation returnType,
@@ -79,15 +131,45 @@ internal class ScriptBlockDelegate
         string typeName = $"{dllName}.{methodName}-{Guid.NewGuid()}";
         string delegateName = $"{typeName}Delegate";
 
-        Type delegateType = CreateDelegateClass(delegateName, returnType, parameters);
-        Type thisContextType = CreateThisContextClass($"{typeName}Invoke", returnType, parameters,
-            delegateType, delegateType.GetMethod("Invoke")!);
+        Type delegateType = CreateDelegateClass($"{typeName}Delegate", returnType, parameters);
+
+        TypeBuilder thisContextBuilder = ReflectionInfo.Module.DefineType(
+            $"{typeName}Invoke",
+            TypeAttributes.Public | TypeAttributes.Class);
+
+        FieldBuilder originalMethodField = thisContextBuilder.DefineField(
+            "OriginalMethod",
+            typeof(GCHandle),
+            FieldAttributes.Private);
+
+        CreateThisContextInvokeMethod(thisContextBuilder, originalMethodField, returnType, parameters,
+           delegateType, delegateType.GetMethod("Invoke")!);
+
+        // If any of the parameters are ByRef types then a second delegate that
+        // accepts the Ref<T> overload should be created. This allows the
+        // caller of $this.Invoke() to either pass in the Ref<T> straight
+        // or use their own [ref]$val call.
+        if (parameters.Where(p => p.Type.IsByRef).Count() > 0)
+        {
+            TypeInformation[] ptrParameters = parameters
+                .Select(p => p.CreatePtrInformation())
+                .ToArray();
+            Type delegatePtrType = CreateDelegateClass($"{typeName}DelegatePtr", returnType, ptrParameters);
+
+            TypeInformation[] detourParameters = parameters
+                .Select(p => p.CreateDetourRefInformation())
+                .ToArray();
+            CreateThisContextInvokeMethod(thisContextBuilder, originalMethodField, returnType, detourParameters,
+                delegatePtrType, delegatePtrType.GetMethod("Invoke")!);
+        }
+
+        Type thisContextType = thisContextBuilder.CreateType()!;
         Type runnerType = CreateRunnerClass(typeName, returnType, parameters, thisContextType);
 
         return new(
             runnerType,
             thisContextType,
-            Delegate.CreateDelegate(delegateType, null, runnerType.GetMethod("Invoke")!)
+            delegateType
         );
     }
 
@@ -96,7 +178,7 @@ internal class ScriptBlockDelegate
     {
         TypeBuilder tb = ReflectionInfo.Module.DefineType(
             typeName,
-            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
+            TypeAttributes.Public | TypeAttributes.Class);
 
         FieldBuilder actionField = tb.DefineField(
             "Action",
@@ -110,10 +192,15 @@ internal class ScriptBlockDelegate
 
         MethodBuilder mb = tb.DefineMethod(
             "Invoke",
-            System.Reflection.MethodAttributes.Static | System.Reflection.MethodAttributes.Public,
+            MethodAttributes.Static | MethodAttributes.Public,
             CallingConventions.Standard,
             returnType.Type,
             parameters.Select(p => p.Type).ToArray());
+
+        if (returnType.MarshalAs != null)
+        {
+            CreateParameter(mb, 0, returnType);
+        }
 
         for (int i = 0; i < parameters.Length; i++)
         {
@@ -321,39 +408,40 @@ internal class ScriptBlockDelegate
             CallingConventions.Standard, new[] { typeof(object), typeof(IntPtr) });
         ctorBulder.SetImplementationFlags(MethodImplAttributes.CodeTypeMask);
 
-        MethodBuilder invokeMethod = tb.DefineMethod(
+        MethodBuilder mb = tb.DefineMethod(
             "Invoke",
             MethodAttributes.HideBySig | MethodAttributes.Virtual | MethodAttributes.Public,
             returnType.Type,
             parameters.Select(p => p.Type).ToArray());
-        invokeMethod.SetImplementationFlags(MethodImplAttributes.CodeTypeMask);
+        mb.SetImplementationFlags(MethodImplAttributes.CodeTypeMask);
+
+        if (returnType.MarshalAs != null)
+        {
+            CreateParameter(mb, 0, returnType);
+        }
 
         for (int i = 0; i < parameters.Length; i++)
         {
-            CreateParameter(invokeMethod, i + 1, parameters[i]);
+            CreateParameter(mb, i + 1, parameters[i]);
         }
 
         return tb.CreateType()!;
     }
 
-    private static Type CreateThisContextClass(string typeName, TypeInformation returnType,
-        TypeInformation[] parameters, Type delegateType, MethodInfo delegateMethod)
+    private static MethodBuilder CreateThisContextInvokeMethod(TypeBuilder classType, FieldBuilder originalMethodField,
+        TypeInformation returnType, TypeInformation[] parameters, Type delegateType, MethodInfo delegateMethod)
     {
-        TypeBuilder tb = ReflectionInfo.Module.DefineType(
-            typeName,
-            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
-
-        FieldBuilder originalMethodField = tb.DefineField(
-            "OriginalMethod",
-            typeof(GCHandle),
-            FieldAttributes.Private);
-
-        MethodBuilder mb = tb.DefineMethod(
+        MethodBuilder mb = classType.DefineMethod(
             "Invoke",
-            System.Reflection.MethodAttributes.Public,
+            MethodAttributes.Public,
             CallingConventions.Standard,
             returnType.Type,
             parameters.Select(p => p.Type).ToArray());
+
+        if (returnType.MarshalAs != null)
+        {
+            CreateParameter(mb, 0, returnType);
+        }
 
         for (int i = 0; i < parameters.Length; i++)
         {
@@ -362,21 +450,24 @@ internal class ScriptBlockDelegate
 
         ILGenerator il = mb.GetILGenerator();
 
-        MethodInfo test = typeof(Marshal).GetMethod("GetDelegateForFunctionPointer", new[] { typeof(IntPtr) })!;
-
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Ldflda, originalMethodField);
         il.Emit(OpCodes.Call, ReflectionInfo.AddrOfPinnedObjFunc);
         il.Emit(OpCodes.Ldind_I);
         il.Emit(OpCodes.Call, ReflectionInfo.GetDelegateForFunc.MakeGenericMethod(new[] { delegateType }));
-        for (int i = 1; i <= parameters.Length; i++)
+        for (int i = 0; i < parameters.Length; i++)
         {
-            il.Emit(OpCodes.Ldarg, i);
+            il.Emit(OpCodes.Ldarg, i + 1);
+            if (parameters[i].Type.IsGenericType && parameters[i].Type.GetGenericTypeDefinition() == typeof(Ref<>))
+            {
+                FieldInfo ptrField = parameters[i].Type.GetField("_ptr", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                il.Emit(OpCodes.Ldfld, ptrField);
+            }
         }
         il.Emit(OpCodes.Callvirt, delegateMethod);
         il.Emit(OpCodes.Ret);
 
-        return tb.CreateType()!;
+        return mb;
     }
 
     private static ParameterBuilder CreateParameter(MethodBuilder method, int position, TypeInformation typeInfo)
@@ -392,14 +483,14 @@ internal class ScriptBlockDelegate
         }
         if (typeInfo.IsIn)
         {
-            throw new NotImplementedException();
+            attrs |= ParameterAttributes.In;
         }
         if (typeInfo.IsOut)
         {
-            throw new NotImplementedException();
+            attrs |= ParameterAttributes.Out;
         }
 
-        ParameterBuilder pb = method.DefineParameter(position, attrs, $"arg{position}");
+        ParameterBuilder pb = method.DefineParameter(position, attrs, typeInfo.Name ?? $"arg{position}");
         foreach (CustomAttributeBuilder custom in customAttrs)
         {
             pb.SetCustomAttribute(custom);
@@ -425,13 +516,11 @@ internal class ReferenceLocal
     }
 }
 
-public class Ref<T> where T : unmanaged
+public sealed class Ref<T> where T : unmanaged
 {
-    private unsafe T* _ptr;
+    internal unsafe T* _ptr;
 
     internal unsafe Ref(T* ptr) => _ptr = ptr;
-
-    // public static implicit operator PSReference(Ref<T> val) => new PSReference(val.Value);
 
     public unsafe T Value
     {
@@ -443,15 +532,42 @@ public class Ref<T> where T : unmanaged
 public class TypeInformation
 {
     public Type Type { get; }
+    public string? Name { get; }
     public bool IsIn { get; }
     public bool IsOut { get; }
     public MarshalAsAttribute? MarshalAs { get; }
 
-    public TypeInformation(Type type, MarshalAsAttribute? marshalAs = null, bool isIn = false, bool isOut = false)
+    public TypeInformation(Type type, string? name = null, MarshalAsAttribute? marshalAs = null, bool isIn = false,
+        bool isOut = false)
     {
         Type = type;
+        Name = name;
         MarshalAs = marshalAs;
         IsIn = isIn;
         IsOut = isOut;
+    }
+
+    internal TypeInformation CreatePtrInformation()
+    {
+        if (Type.IsByRef)
+        {
+            return new(Type.GetElementType()!.MakePointerType(), name: Name);
+        }
+        else
+        {
+            return this;
+        }
+    }
+
+    internal TypeInformation CreateDetourRefInformation()
+    {
+        if (Type.IsByRef)
+        {
+            return new(typeof(Ref<>).MakeGenericType(Type.GetElementType()!), name: Name);
+        }
+        else
+        {
+            return this;
+        }
     }
 }

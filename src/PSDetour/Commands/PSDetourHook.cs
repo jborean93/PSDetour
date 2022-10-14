@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Management.Automation;
 using System.Management.Automation.Language;
@@ -43,24 +44,47 @@ public class NewPSDetourHook : PSCmdlet
             return;
         }
 
-        TypeInformation[] parameterTypes = scriptAst.ParamBlock.Parameters.Select(p => ProcessParameterType(p)).ToArray();
-
-        // TODO: Support the MarshalAs return attribute
-        TypeInformation returnType = scriptAst.ParamBlock.Attributes
-            .Where(a => a.TypeName.GetReflectionType() == typeof(OutputTypeAttribute) && a.PositionalArguments.Count == 1)
-            .Select(a => a.PositionalArguments[0])
-            .OfType<TypeExpressionAst>()
-            .Select(a => new TypeInformation(a.TypeName.GetReflectionType()!))
-            .Cast<TypeInformation>()
-            .DefaultIfEmpty(new TypeInformation(typeof(void)))
-            .First();
+        TypeInformation returnType = ProcessOutputType(
+            (IEnumerable<AttributeAst>?)scriptAst.ParamBlock?.Attributes ?? Array.Empty<AttributeAst>());
+        TypeInformation[] parameterTypes = scriptAst.ParamBlock?.Parameters
+            ?.Select(p => ProcessParameterType(p))
+            ?.ToArray() ?? Array.Empty<TypeInformation>();
 
         WriteObject(new ScriptBlockHook(DllName, MethodName, Action, returnType, parameterTypes));
     }
 
-    public static TypeInformation ProcessParameterType(ParameterAst parameter)
+    private static TypeInformation ProcessOutputType(IEnumerable<AttributeAst> paramAttributes)
     {
-        // TODO: Capture In, Out,
+        MarshalAsAttribute? marshalAs = null;
+
+        Type? outputType = null;
+        foreach (AttributeBaseAst attr in paramAttributes)
+        {
+            if (attr is not AttributeAst ast)
+            {
+                continue;
+            }
+
+            if (
+                ast.TypeName.GetReflectionType() == typeof(OutputTypeAttribute) &&
+                ast.PositionalArguments.Count == 1 &&
+                ast.PositionalArguments[0] is TypeExpressionAst outputTypeAst
+            )
+            {
+                outputType = outputTypeAst.TypeName.GetReflectionType();
+            }
+            else if (marshalAs == null)
+            {
+                marshalAs = GetMarshalAs(ast);
+            }
+        }
+
+        return new(outputType ?? typeof(void), marshalAs: marshalAs);
+    }
+
+    private static TypeInformation ProcessParameterType(ParameterAst parameter)
+    {
+
         MarshalAsAttribute? marshalAs = null;
         bool isIn = false;
         bool isOut = false;
@@ -82,22 +106,35 @@ public class NewPSDetourHook : PSCmdlet
                 continue;
             }
 
-            if (
-                ast.TypeName.GetReflectionType() == typeof(MarshalAsAttribute) &&
-                ast.PositionalArguments.Count == 1 &&
-                ast.PositionalArguments[0] is MemberExpressionAst unmanagedTypeAst &&
-                unmanagedTypeAst.Member.SafeGetValue() is string rawUnmanagedType &&
-                unmanagedTypeAst.Expression is TypeExpressionAst typeExpAst &&
-                typeExpAst.TypeName.GetReflectionType() == typeof(UnmanagedType) &&
-                Enum.TryParse<UnmanagedType>(rawUnmanagedType, true, out var unmanagedType)
-            )
+            isIn = isIn || ast.TypeName.GetReflectionType() == typeof(InAttribute);
+            isOut = isOut || ast.TypeName.GetReflectionType() == typeof(OutAttribute);
+            if (marshalAs == null)
             {
-                // TODO: Set named values like SizeConst
-                marshalAs = new MarshalAsAttribute(unmanagedType);
+                marshalAs = GetMarshalAs(ast);
             }
         }
 
-        return new(paramType, marshalAs: marshalAs, isIn: isIn, isOut: isOut);
+        return new(paramType, name: parameter.Name.VariablePath.UserPath, marshalAs: marshalAs,
+            isIn: isIn, isOut: isOut);
+    }
+
+    private static MarshalAsAttribute? GetMarshalAs(AttributeAst attribute)
+    {
+        if (
+            attribute.TypeName.GetReflectionType() == typeof(MarshalAsAttribute) &&
+            attribute.PositionalArguments.Count == 1 &&
+            attribute.PositionalArguments[0] is MemberExpressionAst unmanagedTypeAst &&
+            unmanagedTypeAst.Member.SafeGetValue() is string rawUnmanagedType &&
+            unmanagedTypeAst.Expression is TypeExpressionAst typeExpAst &&
+            typeExpAst.TypeName.GetReflectionType() == typeof(UnmanagedType) &&
+            Enum.TryParse<UnmanagedType>(rawUnmanagedType, true, out var unmanagedType)
+        )
+        {
+            // TODO: Set named values like SizeConst
+            return new MarshalAsAttribute(unmanagedType);
+        }
+
+        return null;
     }
 }
 
