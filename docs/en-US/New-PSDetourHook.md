@@ -88,6 +88,7 @@ In this example it will try to invoke the C function and have a fallback to pref
 The scriptblock to run when the C function is called.
 The `[OutputType([type])]` should be defined as the return value type of the C function.
 Parameters should also be defined in the `param()` block for each argument of the C function and their respective types.
+Any variables that reference variables outside of the `-Action` should be prefixed with `$using:VariableName`.
 
 ```yaml
 Type: ScriptBlock

@@ -1,8 +1,7 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Management.Automation;
+using System.Management.Automation.Host;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
@@ -13,16 +12,15 @@ namespace PSDetour;
 internal static class ReflectionInfo
 {
     private static ModuleBuilder? _builder = null;
+    private static ConstructorInfo? _invokeContextCtor = null;
     private static ConstructorInfo? _marshalAsCtor = null;
-    private static ConstructorInfo? _listPSVarCtor = null;
-    private static ConstructorInfo? _psvarCtor = null;
     private static MethodInfo? _addrOfPinnedObjFunc = null;
-    private static MethodInfo? _collectionPSObjCountFunc = null;
-    private static MethodInfo? _collectionPSObjGetItemFunc = null;
     private static MethodInfo? _getDelegateForFunc = null;
-    private static MethodInfo? _listPSVarAddFunc = null;
-    private static MethodInfo? _psobjBaseObjectFunc = null;
-    private static MethodInfo? _sbkInvokeWithContextFunc = null;
+    private static MethodInfo? _getLastErrorFunc = null;
+    private static MethodInfo? _getOriginalMethodFunc = null;
+    private static MethodInfo? _setLastPInvokeErrorFunc = null;
+    private static MethodInfo? _wrapInvokeFunc = null;
+    private static MethodInfo? _wrapInvokeVoidFunc = null;
 
     public static ModuleBuilder Module
     {
@@ -48,6 +46,26 @@ internal static class ReflectionInfo
         }
     }
 
+    public static ConstructorInfo InvokeContextCtor
+    {
+        get
+        {
+            if (_invokeContextCtor == null)
+            {
+                _invokeContextCtor = typeof(InvokeContext).GetConstructor(
+                    BindingFlags.NonPublic | BindingFlags.Instance,
+                    new[] {
+                        typeof(ScriptBlock),
+                        typeof(PSHost),
+                        typeof(Dictionary<string, object>),
+                        typeof(GCHandle)
+                    })!;
+            }
+
+            return _invokeContextCtor;
+        }
+    }
+
     public static ConstructorInfo MarshalAsCtor
     {
         get
@@ -63,37 +81,6 @@ internal static class ReflectionInfo
         }
     }
 
-    public static ConstructorInfo ListPSVarCtor
-    {
-        get
-        {
-            if (_listPSVarCtor == null)
-            {
-                _listPSVarCtor = typeof(List<PSVariable>).GetConstructor(
-                    BindingFlags.Public | BindingFlags.Instance,
-                    new Type[0])!;
-            }
-
-            return _listPSVarCtor;
-        }
-    }
-
-    public static ConstructorInfo PSVarCtor
-    {
-        get
-        {
-            if (_psvarCtor == null)
-            {
-                // FIXME: Set ReadOnly
-                _psvarCtor = typeof(PSVariable).GetConstructor(
-                    BindingFlags.Public | BindingFlags.Instance,
-                    new[] { typeof(string), typeof(object) })!;
-            }
-
-            return _psvarCtor;
-        }
-    }
-
     public static MethodInfo AddrOfPinnedObjFunc
     {
         get
@@ -102,40 +89,10 @@ internal static class ReflectionInfo
             {
                 _addrOfPinnedObjFunc = typeof(GCHandle).GetMethod(
                     "AddrOfPinnedObject",
-                    new Type[0])!;
-
+                    Array.Empty<Type>())!;
             }
 
             return _addrOfPinnedObjFunc;
-        }
-    }
-
-    public static MethodInfo CollectionPSObjCountFunc
-    {
-        get
-        {
-            if (_collectionPSObjCountFunc == null)
-            {
-                _collectionPSObjCountFunc = typeof(Collection<PSObject>).GetMethod(
-                    "get_Count")!;
-            }
-
-            return _collectionPSObjCountFunc;
-        }
-
-    }
-
-    public static MethodInfo CollectionPSObjGetItemFunc
-    {
-        get
-        {
-            if (_collectionPSObjGetItemFunc == null)
-            {
-                _collectionPSObjGetItemFunc = typeof(Collection<PSObject>).GetMethod(
-                    "get_Item")!;
-            }
-
-            return _collectionPSObjGetItemFunc;
         }
     }
 
@@ -148,56 +105,89 @@ internal static class ReflectionInfo
                 _getDelegateForFunc = typeof(Marshal).GetMethod(
                     "GetDelegateForFunctionPointer",
                     new[] { typeof(IntPtr) })!;
-
             }
 
             return _getDelegateForFunc;
         }
     }
 
-    public static MethodInfo ListPSVarAddFunc
+    public static MethodInfo GetLastErrorFunc
     {
         get
         {
-            if (_listPSVarAddFunc == null)
+            if (_getLastErrorFunc == null)
             {
-                _listPSVarAddFunc = typeof(List<PSVariable>).GetMethod(
-                    "Add",
-                    BindingFlags.Public | BindingFlags.Instance,
-                    new[] { typeof(PSVariable) })!;
+                _getLastErrorFunc = typeof(InvokeContext).GetMethod(
+                    nameof(InvokeContext.GetLastError),
+                    BindingFlags.Static | BindingFlags.NonPublic,
+                    Array.Empty<Type>())!;
             }
 
-            return _listPSVarAddFunc;
+            return _getLastErrorFunc;
         }
     }
 
-    public static MethodInfo PSObjectBaseObjectFunc
+    public static MethodInfo GetOriginalMethodFunc
     {
         get
         {
-            if (_psobjBaseObjectFunc == null)
+            if (_getOriginalMethodFunc == null)
             {
-                _psobjBaseObjectFunc = typeof(PSObject).GetMethod(
-                    "get_BaseObject")!;
+                _getOriginalMethodFunc = typeof(InvokeContext).GetMethod(
+                    "get_OriginalMethod",
+                    BindingFlags.NonPublic | BindingFlags.Instance,
+                    Array.Empty<Type>())!;
             }
 
-            return _psobjBaseObjectFunc;
+            return _getOriginalMethodFunc;
         }
     }
 
-    public static MethodInfo SbkInvokeWithContextFunc
+    public static MethodInfo SetLastPInvokeErrorFunc
     {
         get
         {
-            if (_sbkInvokeWithContextFunc == null)
+            if (_setLastPInvokeErrorFunc == null)
             {
-                _sbkInvokeWithContextFunc = typeof(ScriptBlock).GetMethod(
-                    "InvokeWithContext",
-                    BindingFlags.Public | BindingFlags.Instance,
-                    new[] { typeof(IDictionary), typeof(List<PSVariable>), typeof(object[]) })!;
+                _setLastPInvokeErrorFunc = typeof(Marshal).GetMethod(
+                    "SetLastPInvokeError",
+                    BindingFlags.Static | BindingFlags.Public,
+                    new[] { typeof(int) })!;
             }
 
-            return _sbkInvokeWithContextFunc;
+            return _setLastPInvokeErrorFunc;
+        }
+    }
+
+    public static MethodInfo WrapInvokeFunc
+    {
+        get
+        {
+            if (_wrapInvokeFunc == null)
+            {
+                _wrapInvokeFunc = typeof(InvokeContext).GetMethod(
+                    nameof(InvokeContext.WrapInvoke),
+                    BindingFlags.NonPublic | BindingFlags.Static,
+                    new[] { typeof(InvokeContext), typeof(object[]) })!;
+            }
+
+            return _wrapInvokeFunc;
+        }
+    }
+
+    public static MethodInfo WrapInvokeVoidFunc
+    {
+        get
+        {
+            if (_wrapInvokeVoidFunc == null)
+            {
+                _wrapInvokeVoidFunc = typeof(InvokeContext).GetMethod(
+                    nameof(InvokeContext.WrapInvokeVoid),
+                    BindingFlags.NonPublic | BindingFlags.Static,
+                    new[] { typeof(InvokeContext), typeof(object[]) })!;
+            }
+
+            return _wrapInvokeVoidFunc;
         }
     }
 }

@@ -106,13 +106,13 @@ internal sealed class InjectedPipeClientSessionTransportManager : NamedPipeClien
         _pipe.WaitForConnection();
 
         using SafeDuplicateHandle _remotePipe = Kernel32.DuplicateHandle(
-                currentProcess,
-                clientPipe.SafePipeHandle,
-                _remoteProcess,
-                0,
-                false,
-                DuplicateHandleOptions.SameAccess,
-                true);
+            currentProcess,
+            clientPipe.SafePipeHandle,
+            _remoteProcess,
+            0,
+            false,
+            DuplicateHandleOptions.SameAccess,
+            true);
 
         clientPipe.Dispose();
 

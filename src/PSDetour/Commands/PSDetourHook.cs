@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Management.Automation;
+using System.Management.Automation.Host;
 using System.Management.Automation.Language;
 using System.Runtime.InteropServices;
 
@@ -50,7 +51,10 @@ public class NewPSDetourHook : PSCmdlet
             ?.Select(p => ProcessParameterType(p))
             ?.ToArray() ?? Array.Empty<TypeInformation>();
 
-        WriteObject(new ScriptBlockHook(DllName, MethodName, Action, returnType, parameterTypes));
+        Dictionary<string, object> usingVars = ScriptBlockToPowerShellConverter.GetUsingValuesAsDictionary(
+            Action, true, Context, null);
+
+        WriteObject(new ScriptBlockHook(DllName, MethodName, Action, returnType, parameterTypes, Host, usingVars));
     }
 
     private static TypeInformation ProcessOutputType(IEnumerable<AttributeAst> paramAttributes)
@@ -145,14 +149,18 @@ public class ScriptBlockHook
     public ScriptBlock Action { get; internal set; }
     public TypeInformation ReturnType { get; internal set; }
     public TypeInformation[] ParameterTypes { get; internal set; }
+    public PSHost? Host { get; internal set; }
+    internal Dictionary<string, object> UsingVars { get; set; }
 
     public ScriptBlockHook(string dllName, string methodName, ScriptBlock action, TypeInformation returnType,
-        TypeInformation[] parameterTypes)
+        TypeInformation[] parameterTypes, PSHost? host, Dictionary<string, object> usingVars)
     {
         DllName = dllName;
         MethodName = methodName;
         Action = action;
         ReturnType = returnType;
         ParameterTypes = parameterTypes;
+        Host = host;
+        UsingVars = usingVars;
     }
 }

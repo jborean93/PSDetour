@@ -81,6 +81,7 @@ public static class Hook
         foreach (ScriptBlockHook hook in hooks)
         {
             IntPtr originalMethodPtr = GlobalState.GetProcAddress(hook.DllName, hook.MethodName);
+            GCHandle originalMethod = GCHandle.Alloc(originalMethodPtr, GCHandleType.Pinned);
 
             string hookName = $"{hook.DllName}.{hook.MethodName}";
             ScriptBlockDelegate sbkDelegate = ScriptBlockDelegate.Create(
@@ -89,9 +90,9 @@ public static class Hook
                 hook.ReturnType,
                 hook.ParameterTypes);
 
-            GCHandle originalMethod = GCHandle.Alloc(originalMethodPtr, GCHandleType.Pinned);
-            object invokeContext = sbkDelegate.CreateInvokeContext(originalMethod);
-            Delegate invokeDelegate = sbkDelegate.CreateNativeDelegate(hook.Action, invokeContext);
+            InvokeContext invokeContext = sbkDelegate.CreateInvokeContext(hook.Action, hook.Host, hook.UsingVars,
+                originalMethod);
+            Delegate invokeDelegate = sbkDelegate.CreateNativeDelegate(invokeContext);
 
             RunningHook runningHook = new(invokeDelegate, invokeContext, originalMethod);
             runningHook.Attach();
@@ -111,7 +112,4 @@ public static class Hook
 
         RunningHooks.Clear();
     }
-
-    [DllImport("Advapi32.dll")]
-    public static extern bool OpenProcessToken(IntPtr process, int access, out IntPtr token);
 }
