@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Management.Automation;
 using System.Management.Automation.Host;
+using System.Management.Automation.Remoting;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
@@ -14,10 +15,15 @@ internal static class ReflectionInfo
     private static ModuleBuilder? _builder = null;
     private static ConstructorInfo? _invokeContextCtor = null;
     private static ConstructorInfo? _marshalAsCtor = null;
+    private static FieldInfo? _ipcNamedPipeServerEnabledField = null;
     private static MethodInfo? _addrOfPinnedObjFunc = null;
+    private static MethodInfo? _cmdletGetContext = null;
+    private static MethodInfo? _createIPCNamedPipeServerFunc = null;
     private static MethodInfo? _getDelegateForFunc = null;
     private static MethodInfo? _getLastErrorFunc = null;
     private static MethodInfo? _getOriginalMethodFunc = null;
+    private static MethodInfo? _runServerModeFunc = null;
+    private static MethodInfo? _sbkToPwshConverterType = null;
     private static MethodInfo? _setLastPInvokeErrorFunc = null;
     private static MethodInfo? _wrapInvokeFunc = null;
     private static MethodInfo? _wrapInvokeVoidFunc = null;
@@ -33,11 +39,11 @@ internal static class ReflectionInfo
                     new(assemblyName),
                     AssemblyBuilderAccess.Run);
 
-                CustomAttributeBuilder ignoresAccessChecksTo = new(
-                    typeof(IgnoresAccessChecksToAttribute).GetConstructor(new Type[] { typeof(string) })!,
-                    new object[] { typeof(GlobalState).Assembly.GetName().Name! }
-                );
-                builder.SetCustomAttribute(ignoresAccessChecksTo);
+                // CustomAttributeBuilder ignoresAccessChecksTo = new(
+                //     typeof(IgnoresAccessChecksToAttribute).GetConstructor(new Type[] { typeof(string) })!,
+                //     new object[] { typeof(GlobalState).Assembly.GetName().Name! }
+                // );
+                // builder.SetCustomAttribute(ignoresAccessChecksTo);
 
                 _builder = builder.DefineDynamicModule(assemblyName);
             }
@@ -81,6 +87,21 @@ internal static class ReflectionInfo
         }
     }
 
+    public static FieldInfo IPCNamedPipeServerEnabledField
+    {
+        get
+        {
+            if (_ipcNamedPipeServerEnabledField == null)
+            {
+                _ipcNamedPipeServerEnabledField = typeof(RemoteSessionNamedPipeServer).GetField(
+                    "IPCNamedPipeServerEnabled",
+                    BindingFlags.NonPublic | BindingFlags.Static)!;
+            }
+
+            return _ipcNamedPipeServerEnabledField;
+        }
+    }
+
     public static MethodInfo AddrOfPinnedObjFunc
     {
         get
@@ -93,6 +114,38 @@ internal static class ReflectionInfo
             }
 
             return _addrOfPinnedObjFunc;
+        }
+    }
+
+    public static MethodInfo CmdletGetContext
+    {
+        get
+        {
+            if (_cmdletGetContext == null)
+            {
+                _cmdletGetContext = typeof(PSCmdlet).GetMethod(
+                    "get_Context",
+                    BindingFlags.NonPublic | BindingFlags.Instance,
+                    Array.Empty<Type>())!;
+            }
+
+            return _cmdletGetContext;
+        }
+    }
+
+    public static MethodInfo CreateIPCNamedPipeServerFunc
+    {
+        get
+        {
+            if (_createIPCNamedPipeServerFunc == null)
+            {
+                _createIPCNamedPipeServerFunc = typeof(RemoteSessionNamedPipeServer).GetMethod(
+                    "CreateIPCNamedPipeServerSingleton",
+                    BindingFlags.NonPublic | BindingFlags.Static,
+                    Array.Empty<Type>())!;
+            }
+
+            return _createIPCNamedPipeServerFunc;
         }
     }
 
@@ -140,6 +193,43 @@ internal static class ReflectionInfo
             }
 
             return _getOriginalMethodFunc;
+        }
+    }
+
+    public static MethodInfo RunServerModeFunc
+    {
+        get
+        {
+            if (_runServerModeFunc == null)
+            {
+                _runServerModeFunc = typeof(RemoteSessionNamedPipeServer).GetMethod(
+                    "RunServerMode",
+                    BindingFlags.NonPublic | BindingFlags.Static,
+                    new[] { typeof(string) })!;
+            }
+
+            return _runServerModeFunc;
+        }
+    }
+
+    public static MethodInfo SbkToPwshConverterType
+    {
+        get
+        {
+            if (_sbkToPwshConverterType == null)
+            {
+                Type actualType = typeof(PSObject).Assembly.GetType(
+                    "System.Management.Automation.ScriptBlockToPowerShellConverter", true)!;
+                Type contextType = typeof(PSObject).Assembly.GetType(
+                    "System.Management.Automation.ExecutionContext", true)!;
+
+                _sbkToPwshConverterType = actualType.GetMethod(
+                    "GetUsingValuesAsDictionary",
+                    BindingFlags.NonPublic | BindingFlags.Static,
+                    new[] { typeof(ScriptBlock), typeof(bool), contextType, typeof(Dictionary<string, object>) })!;
+            }
+
+            return _sbkToPwshConverterType;
         }
     }
 

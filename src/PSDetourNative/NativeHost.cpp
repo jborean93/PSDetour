@@ -1,6 +1,7 @@
 #include <iostream>
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <assert.h>
 
 #include <coreclr_delegates.h>
@@ -14,13 +15,12 @@ struct worker_args_t
 {
     const void *pipe;
     const wchar_t *powershell_dir;
-    int powershell_dir_count;
+    const wchar_t *assembly_path;
+    const wchar_t *runtime_config_path;
 };
 
 namespace
 {
-    HINSTANCE dll_module = nullptr;
-
     // Globals to hold hostfxr exports
     hostfxr_initialize_for_runtime_config_fn init_fptr;
     hostfxr_get_runtime_delegate_fn get_delegate_fptr;
@@ -29,74 +29,98 @@ namespace
 
     // Forward declarations
     bool load_hostfxr(const char_t *);
-    load_assembly_and_get_function_pointer_fn get_dotnet_load_assembly(const char_t *assembly);
+    // load_assembly_and_get_function_pointer_fn get_dotnet_load_assembly(const char_t *assembly);
     void hostfxr_error_handler(const char_t *message);
+    void write_error(HANDLE pipe, const char_t *message);
 }
 
 extern "C" __declspec(dllexport) int inject(worker_args_t *p_worker_args)
 {
     //
-    // STEP 0: Get the current executable directory
-    //
-    std::basic_string<wchar_t> module_path(MAX_PATH, '\0');
-    DWORD copied = 0;
-    for (;;)
-    {
-        auto length = ::GetModuleFileNameW(dll_module, &module_path[0], module_path.length());
-        if (length < module_path.length() - 1)
-        {
-            module_path.resize(length);
-            module_path.shrink_to_fit();
-            break;
-        }
-
-        module_path.resize(module_path.length() * 2);
-    }
-
-    //
     // STEP 1: Load HostFxr and get exported hosting functions
     //
     std::filesystem::path hostfxr_path{p_worker_args->powershell_dir};
+    // std::filesystem::path hostfxr_path{L"C:\\Program Files\\dotnet\\host\\fxr\\7.0.0-rc.2.22472.3"};
     hostfxr_path /= L"hostfxr.dll";
     if (!load_hostfxr(hostfxr_path.c_str()))
     {
-        assert(false && "Failure: load_hostfxr()");
+        write_error((HANDLE)p_worker_args->pipe, L"load_hostfxr() failed");
         return 1;
     }
 
     //
     // STEP 2: Initialize and start the .NET Core runtime
     //
-    std::filesystem::path config_path{module_path};
-    config_path.replace_filename(L"PSDetour.runtimeconfig.json");
+    // hostfxr_initialize_parameters init_parameters{
+    //     sizeof(hostfxr_initialize_parameters),
+    //     L"C:\\Program Files\\PowerShell\\7.3.0\\pwsh.exe",
+    //     L"C:\\Program Files\\PowerShell\\7.3.0"};
+    std::filesystem::path config_path{p_worker_args->runtime_config_path};
+
+    hostfxr_handle hostfxr_cxt = nullptr;
+    int rc = init_fptr(config_path.c_str(), nullptr, &hostfxr_cxt);
+    if ((rc != 0 && rc != 1 && rc != 2) || hostfxr_cxt == nullptr)
+    {
+        std::wstring err_msg = L"hostfxr_initialize_for_runtime_config() failed with ";
+        err_msg += std::to_wstring(rc);
+        write_error((HANDLE)p_worker_args->pipe, err_msg.c_str());
+        return 1;
+    }
+
+    // Get the load assembly function pointer
     load_assembly_and_get_function_pointer_fn load_assembly_and_get_function_pointer = nullptr;
-    load_assembly_and_get_function_pointer = get_dotnet_load_assembly(config_path.c_str());
-    assert(load_assembly_and_get_function_pointer != nullptr && "Failure: get_dotnet_load_assembly()");
+    rc = get_delegate_fptr(
+        hostfxr_cxt,
+        hdt_load_assembly_and_get_function_pointer,
+        (void **)&load_assembly_and_get_function_pointer);
+    close_fptr(hostfxr_cxt);
+
+    if (rc != 0 || load_assembly_and_get_function_pointer == nullptr)
+    {
+        std::wstring err_msg = L"hostfxr_get_runtime_delegate() failed with ";
+        err_msg += std::to_wstring(rc);
+        write_error((HANDLE)p_worker_args->pipe, err_msg.c_str());
+        return 1;
+    }
 
     set_error_fptr(hostfxr_error_handler);
 
     //
     // STEP 3: Load managed assembly and get function pointer to a managed method
     //
-    std::filesystem::path dotnetlib_path{module_path};
-    dotnetlib_path.replace_filename(L"PSDetour.dll");
+    std::filesystem::path dotnetlib_path{p_worker_args->assembly_path};
 
     typedef void(CORECLR_DELEGATE_CALLTYPE * custom_entry_point_fn)(worker_args_t args);
     custom_entry_point_fn dotnet_main = nullptr;
-    int rc = load_assembly_and_get_function_pointer(
+    rc = load_assembly_and_get_function_pointer(
         dotnetlib_path.c_str(),
         L"PSDetour.RemoteWorker, PSDetour",
         L"Main",
         UNMANAGEDCALLERSONLY_METHOD,
         nullptr,
         (void **)&dotnet_main);
-    assert(rc == 0 && dotnet_main != nullptr && "Failure: load_assembly_and_get_function_pointer()");
+    if (rc != 0 || dotnet_main == nullptr)
+    {
+        std::wstring err_msg = L"load_assembly_and_get_function_pointer() failed with ";
+        err_msg += std::to_wstring(rc);
+        write_error((HANDLE)p_worker_args->pipe, err_msg.c_str());
+        return 1;
+    }
 
     worker_args_t args{
         p_worker_args->pipe,
-        p_worker_args->powershell_dir,
-        p_worker_args->powershell_dir_count};
-    dotnet_main(args);
+        p_worker_args->powershell_dir};
+    try
+    {
+        dotnet_main(args);
+    }
+    catch (...)
+    {
+        // FUTURE: Figure out how to get the exception message to return back
+        write_error((HANDLE)p_worker_args->pipe, L"Unknown dotnet hosting error");
+
+        return 1;
+    }
 
     return 0;
 }
@@ -138,51 +162,66 @@ namespace
     }
 
     // Load and initialize .NET Core and get desired function pointer for scenario
-    load_assembly_and_get_function_pointer_fn get_dotnet_load_assembly(const char_t *config_path)
-    {
-        // Load .NET Core
-        void *load_assembly_and_get_function_pointer = nullptr;
-        hostfxr_handle cxt = nullptr;
-        int rc = init_fptr(config_path, nullptr, &cxt);
-        if ((rc != 0 && rc != 1 && rc != 2) || cxt == nullptr)
-        {
-            close_fptr(cxt);
-            return nullptr;
-        }
+    // load_assembly_and_get_function_pointer_fn get_dotnet_load_assembly(const char_t *config_path)
+    // {
+    //     // Load .NET Core
+    //     void *load_assembly_and_get_function_pointer = nullptr;
+    //     hostfxr_handle cxt = nullptr;
+    //     int rc = init_fptr(config_path, nullptr, &cxt);
+    //     if ((rc != 0 && rc != 1 && rc != 2) || cxt == nullptr)
+    //     {
+    //         close_fptr(cxt);
+    //         return nullptr;
+    //     }
 
-        // Get the load assembly function pointer
-        rc = get_delegate_fptr(
-            cxt,
-            hdt_load_assembly_and_get_function_pointer,
-            &load_assembly_and_get_function_pointer);
-        if (rc != 0 || load_assembly_and_get_function_pointer == nullptr)
-        {
-            close_fptr(cxt);
-            return nullptr;
-        }
+    //     // Get the load assembly function pointer
+    //     rc = get_delegate_fptr(
+    //         cxt,
+    //         hdt_load_assembly_and_get_function_pointer,
+    //         &load_assembly_and_get_function_pointer);
+    //     if (rc != 0 || load_assembly_and_get_function_pointer == nullptr)
+    //     {
+    //         close_fptr(cxt);
+    //         return nullptr;
+    //     }
 
-        close_fptr(cxt);
-        return (load_assembly_and_get_function_pointer_fn)load_assembly_and_get_function_pointer;
-    }
+    //     close_fptr(cxt);
+    //     return (load_assembly_and_get_function_pointer_fn)load_assembly_and_get_function_pointer;
+    // }
 
     void hostfxr_error_handler(const char_t *message)
     {
-        const char_t *test = L"Test";
         return;
+    }
+
+    void write_error(HANDLE pipe, const char_t *message)
+    {
+        int len = wcslen(message) * sizeof(wchar_t);
+        byte lenBytes[5];
+        lenBytes[0] = 1; // Marks this as an error
+        lenBytes[1] = len & 0x000000FF;
+        lenBytes[2] = (len & 0x0000FF00) >> 8;
+        lenBytes[3] = (len & 0x00FF0000) >> 16;
+        lenBytes[4] = (len & 0xFF000000) >> 24;
+
+        DWORD bytesWritten;
+        ::WriteFile(
+            pipe,
+            &lenBytes[0],
+            5,
+            &bytesWritten,
+            NULL);
+
+        ::WriteFile(
+            pipe,
+            message,
+            len,
+            &bytesWritten,
+            NULL);
     }
 }
 
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD dwReason, LPVOID lpReserved)
 {
-    switch (dwReason)
-    {
-    case DLL_PROCESS_ATTACH:
-        dll_module = hinstDLL;
-        break;
-    case DLL_PROCESS_DETACH:
-        dll_module = nullptr;
-        break;
-    }
-
     return TRUE;
 }

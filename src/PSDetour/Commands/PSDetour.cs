@@ -8,7 +8,7 @@ namespace PSDetour.Commands;
 [OutputType(typeof(void))]
 public class StartPSDetour : PSCmdlet
 {
-    private List<ScriptBlockHook> _hooks = new();
+    private List<DetourHook> _hooks = new();
 
     [Parameter(
         Mandatory = true,
@@ -17,11 +17,19 @@ public class StartPSDetour : PSCmdlet
         ValueFromPipelineByPropertyName = true
     )]
     [ValidateNotNullOrEmpty]
-    public ScriptBlockHook[] Hook { get; set; } = Array.Empty<ScriptBlockHook>();
+    public DetourHook[] Hook { get; set; } = Array.Empty<DetourHook>();
 
     protected override void ProcessRecord()
     {
-        _hooks.AddRange(Hook);
+        foreach (DetourHook h in Hook)
+        {
+            if (h is ScriptBlockHook sbkHook)
+            {
+                sbkHook.SetHostContext(this);
+            }
+
+            _hooks.Add(h);
+        }
     }
 
     protected override void EndProcessing()

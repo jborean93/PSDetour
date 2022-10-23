@@ -1,4 +1,4 @@
-# Copyright: (c) 2021, Jordan Borean (@jborean93) <jborean93@gmail.com>
+# Copyright: (c) 2022, Jordan Borean (@jborean93) <jborean93@gmail.com>
 # MIT License (see LICENSE or https://opensource.org/licenses/MIT)
 #
 # Module manifest for module 'PSDetour'
@@ -11,7 +11,7 @@
 @{
 
     # Script module or binary module file associated with this manifest.
-    RootModule        = 'bin/net6.0-windows/PSDetour.dll'
+    RootModule        = 'PSDetour.psm1'
 
     # Version number of this module.
     ModuleVersion     = '0.1.0'

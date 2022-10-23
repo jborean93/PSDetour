@@ -1,10 +1,63 @@
-using PSDetour.Commands;
 using PSDetour.Native;
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
 namespace PSDetour;
+
+public static class Hook
+{
+    private static List<RunningHook> RunningHooks = new();
+
+    public static void Start(IEnumerable<DetourHook> hooks)
+    {
+        if (RunningHooks.Count > 0)
+        {
+            throw new Exception("Already in transaction");
+        }
+
+        using var _ = Detour.DetourTransactionBegin();
+        Detour.DetourUpdateThread(Kernel32.GetCurrentThread());
+
+        foreach (DetourHook hook in hooks)
+        {
+            string hookName = $"{hook.DllName}.{hook.MethodName}";
+            IntPtr originalMethodPtr = GlobalState.GetProcAddress(hook.DllName, hook.MethodName);
+            GCHandle originalMethod = GCHandle.Alloc(originalMethodPtr, GCHandleType.Pinned);
+
+            RunningHook runningHook = hook.CreateRunningHook(originalMethod);
+            runningHook.Attach();
+            RunningHooks.Add(runningHook);
+        }
+    }
+
+    public static void Stop()
+    {
+        using var _ = Detour.DetourTransactionBegin();
+        Detour.DetourUpdateThread(Kernel32.GetCurrentThread());
+
+        foreach (RunningHook hook in RunningHooks)
+        {
+            hook.Dispose();
+        }
+
+        RunningHooks.Clear();
+    }
+}
+
+public abstract class DetourHook
+{
+    public string DllName { get; }
+    public string MethodName { get; }
+
+    public DetourHook(string dllName, string methodName)
+    {
+        DllName = dllName;
+        MethodName = methodName;
+    }
+
+    internal abstract RunningHook CreateRunningHook(GCHandle originalMethod);
+}
 
 internal sealed class RunningHook : IDisposable
 {
@@ -24,7 +77,7 @@ internal sealed class RunningHook : IDisposable
     /// Contains the dynamic context object set as the $this variable during
     /// the hook run. This is also generated dynamically.
     /// </summary>
-    public object InvokeContext { get; }
+    public InvokeContext InvokeContext { get; }
 
     /// <summary>
     /// Contains a pinned ptr to the address of the original method that is
@@ -34,7 +87,7 @@ internal sealed class RunningHook : IDisposable
     /// </summary>
     public GCHandle OriginalMethod { get; }
 
-    public RunningHook(Delegate detourDelegate, object invokeContext, GCHandle originalMethod)
+    public RunningHook(Delegate detourDelegate, InvokeContext invokeContext, GCHandle originalMethod)
     {
         DetourDelegate = detourDelegate;
         DetourMethod = Marshal.GetFunctionPointerForDelegate(DetourDelegate);
@@ -62,54 +115,4 @@ internal sealed class RunningHook : IDisposable
         GC.SuppressFinalize(this);
     }
     ~RunningHook() => Dispose();
-}
-
-public static class Hook
-{
-    private static List<RunningHook> RunningHooks = new();
-
-    public static void Start(IEnumerable<ScriptBlockHook> hooks)
-    {
-        if (RunningHooks.Count > 0)
-        {
-            throw new Exception("Already in transaction");
-        }
-
-        using var _ = Detour.DetourTransactionBegin();
-        Detour.DetourUpdateThread(Kernel32.GetCurrentThread());
-
-        foreach (ScriptBlockHook hook in hooks)
-        {
-            IntPtr originalMethodPtr = GlobalState.GetProcAddress(hook.DllName, hook.MethodName);
-            GCHandle originalMethod = GCHandle.Alloc(originalMethodPtr, GCHandleType.Pinned);
-
-            string hookName = $"{hook.DllName}.{hook.MethodName}";
-            ScriptBlockDelegate sbkDelegate = ScriptBlockDelegate.Create(
-                hook.DllName,
-                hook.MethodName,
-                hook.ReturnType,
-                hook.ParameterTypes);
-
-            InvokeContext invokeContext = sbkDelegate.CreateInvokeContext(hook.Action, hook.Host, hook.UsingVars,
-                originalMethod);
-            Delegate invokeDelegate = sbkDelegate.CreateNativeDelegate(invokeContext);
-
-            RunningHook runningHook = new(invokeDelegate, invokeContext, originalMethod);
-            runningHook.Attach();
-            RunningHooks.Add(runningHook);
-        }
-    }
-
-    public static void Stop()
-    {
-        using var _ = Detour.DetourTransactionBegin();
-        Detour.DetourUpdateThread(Kernel32.GetCurrentThread());
-
-        foreach (RunningHook hook in RunningHooks)
-        {
-            hook.Dispose();
-        }
-
-        RunningHooks.Clear();
-    }
 }

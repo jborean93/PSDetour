@@ -2,10 +2,10 @@ using Microsoft.Win32.SafeHandles;
 using System;
 using System.IO;
 using System.IO.Pipes;
-using System.Management.Automation.Remoting;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
+using System.Text;
 
 namespace PSDetour;
 
@@ -14,7 +14,8 @@ public struct WorkerArgs
 {
     public IntPtr Pipe;
     public IntPtr PowerShellDir;
-    public int PowerShellDirCount;
+    public IntPtr AssemblyPath;
+    public IntPtr RuntimeConfigPath;
 }
 
 public class RemoteWorker
@@ -22,27 +23,41 @@ public class RemoteWorker
     [UnmanagedCallersOnly]
     public static void Main(WorkerArgs args)
     {
-        string pwshDependencyDir = Marshal.PtrToStringUni(args.PowerShellDir, args.PowerShellDirCount) ?? "";
+        PowerShellAssemblyResolver? resolver = null;
 
-        PowerShellAssemblyResolver resolver = new(pwshDependencyDir);
-        AssemblyLoadContext.Default.Resolving += resolver.ResolvePwshDeps;
-        Run(args.Pipe);
-        AssemblyLoadContext.Default.Resolving -= resolver.ResolvePwshDeps;
-    }
-
-    private static void Run(IntPtr pipeHandle)
-    {
-        RemoteSessionNamedPipeServer.IPCNamedPipeServerEnabled = true;
-        RemoteSessionNamedPipeServer.CreateIPCNamedPipeServerSingleton();
-
-        using (NamedPipeClientStream pipe = new(PipeDirection.InOut, false, true, new SafePipeHandle(pipeHandle, false)))
+        using (NamedPipeClientStream pipe = new(PipeDirection.InOut, false, true, new SafePipeHandle(args.Pipe, false)))
         {
-            // Signal parent it has started properly and is ready for PSRemoting.
-            pipe.WriteByte(0);
+            try
+            {
+                string pwshDependencyDir = Marshal.PtrToStringUni(args.PowerShellDir) ?? "";
+
+                resolver = new(pwshDependencyDir);
+                AssemblyLoadContext.Default.Resolving += resolver.ResolvePwshDeps;
+
+                ReflectionInfo.IPCNamedPipeServerEnabledField.SetValue(null, true);
+                ReflectionInfo.CreateIPCNamedPipeServerFunc.Invoke(null, Array.Empty<object>());
+            }
+            catch (Exception e)
+            {
+                string errMsg = $"Worker error {e.GetType().Name}: {e.Message}";
+                byte[] msgBytes = Encoding.Unicode.GetBytes(errMsg);
+                byte[] msgLength = BitConverter.GetBytes(msgBytes.Length);
+                pipe.WriteByte(1);
+                pipe.Write(msgLength);
+                pipe.Write(msgBytes);
+
+                return;
+            }
+
+            pipe.WriteByte(0);  // Signals all is good and to connect to the normal pipe.
         }
 
-        RemoteSessionNamedPipeServer.RunServerMode(
-            configurationName: null);
+        ReflectionInfo.RunServerModeFunc.Invoke(null, new object?[] { null });
+
+        if (resolver != null)
+        {
+            AssemblyLoadContext.Default.Resolving -= resolver.ResolvePwshDeps;
+        }
     }
 }
 

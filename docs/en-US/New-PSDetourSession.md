@@ -97,5 +97,6 @@ The PSSession object that can be used with `Invoke-Command`, `Enter-PSSession`, 
 ## NOTES
 
 Currently only x64 process targets are supported. ARM or x86 based processes will most likely fail and crash the target process.
+See [Host Error Codes](https://github.com/dotnet/runtime/blob/main/docs/design/features/host-error-codes.md) for a list of return codes that may be used to debug hosting errors.
 
 ## RELATED LINKS

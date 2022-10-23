@@ -5,6 +5,21 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "PowerShell 7.3 launch",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "C:\\Program Files\\PowerShell\\7.3.0\\pwsh.exe",
+            "args": [
+                "-NoExit",
+                "-NoProfile",
+                "-Command",
+                "Import-Module ./output/PSDetour"
+            ],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "console": "externalTerminal",
+        },
+        {
             "name": "PowerShell launch",
             "type": "coreclr",
             "request": "launch",

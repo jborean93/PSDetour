@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Management.Automation;
 using System.Management.Automation.Host;
+using System.Management.Automation.Language;
 using System.Management.Automation.Runspaces;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -114,11 +115,11 @@ internal class ScriptBlockDelegate
 
         TypeBuilder invokeContextBuilder = ReflectionInfo.Module.DefineType(
             $"{typeName}Invoke",
-            TypeAttributes.Public | TypeAttributes.Class,
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class,
             typeof(InvokeContext));
 
         ConstructorBuilder invokeContextCtor = invokeContextBuilder.DefineConstructor(
-            MethodAttributes.Public,
+            System.Reflection.MethodAttributes.Public,
             CallingConventions.Standard,
             new[] { typeof(ScriptBlock), typeof(PSHost), typeof(Dictionary<string, object>), typeof(GCHandle) });
         ILGenerator invokeContextCtorIL = invokeContextCtor.GetILGenerator();
@@ -165,7 +166,7 @@ internal class ScriptBlockDelegate
     {
         TypeBuilder tb = ReflectionInfo.Module.DefineType(
             typeName,
-            TypeAttributes.Public | TypeAttributes.Class);
+            System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class);
 
         FieldBuilder invokeContextField = tb.DefineField(
             "InvokeContext",
@@ -174,7 +175,7 @@ internal class ScriptBlockDelegate
 
         MethodBuilder mb = tb.DefineMethod(
             "Invoke",
-            MethodAttributes.Static | MethodAttributes.Public,
+            System.Reflection.MethodAttributes.Static | System.Reflection.MethodAttributes.Public,
             CallingConventions.Standard,
             returnType.Type,
             parameters.Select(p => p.Type).ToArray());
@@ -314,17 +315,17 @@ internal class ScriptBlockDelegate
     {
         TypeBuilder tb = ReflectionInfo.Module.DefineType(
             typeName,
-            TypeAttributes.Sealed | TypeAttributes.Public,
+            System.Reflection.TypeAttributes.Sealed | System.Reflection.TypeAttributes.Public,
             typeof(MulticastDelegate));
 
         ConstructorBuilder ctorBulder = tb.DefineConstructor(
-            MethodAttributes.RTSpecialName | MethodAttributes.HideBySig | MethodAttributes.Public,
+            System.Reflection.MethodAttributes.RTSpecialName | System.Reflection.MethodAttributes.HideBySig | System.Reflection.MethodAttributes.Public,
             CallingConventions.Standard, new[] { typeof(object), typeof(IntPtr) });
         ctorBulder.SetImplementationFlags(MethodImplAttributes.CodeTypeMask);
 
         MethodBuilder mb = tb.DefineMethod(
             "Invoke",
-            MethodAttributes.HideBySig | MethodAttributes.Virtual | MethodAttributes.Public,
+            System.Reflection.MethodAttributes.HideBySig | System.Reflection.MethodAttributes.Virtual | System.Reflection.MethodAttributes.Public,
             returnType.Type,
             parameters.Select(p => p.Type).ToArray());
         mb.SetImplementationFlags(MethodImplAttributes.CodeTypeMask);
@@ -347,7 +348,7 @@ internal class ScriptBlockDelegate
     {
         MethodBuilder mb = classType.DefineMethod(
             "Invoke",
-            MethodAttributes.Public,
+            System.Reflection.MethodAttributes.Public,
             CallingConventions.Standard,
             returnType.Type,
             parameters.Select(p => p.Type).ToArray());
@@ -487,7 +488,7 @@ public class InvokeContext
         Collection<PSObject> res = InvokeInRunspace(invokeContext, args);
         if (res.Count > 0)
         {
-            if (res[res.Count - 1] is T castedRes)
+            if (res[res.Count - 1].BaseObject is T castedRes)
             {
                 return castedRes;
             }
@@ -565,7 +566,148 @@ public sealed class Ref<T> where T : unmanaged
     }
 }
 
-public class TypeInformation
+public sealed class ScriptBlockHook : DetourHook
+{
+    private Dictionary<string, object>? _usingVars;
+    private PSHost? _host;
+    private ScriptBlockAst _scriptAst;
+    private ThreadLocal<bool> _threadData = new(() => false);
+
+    public ScriptBlock Action { get; }
+
+    public ScriptBlockHook(string dllName, string methodName, ScriptBlock action)
+        : base(dllName, methodName)
+    {
+        Action = action;
+        _scriptAst = (ScriptBlockAst)action.Ast;
+    }
+
+    public void SetHostContext(PSCmdlet cmdlet, Dictionary<string, object>? vars = null)
+    {
+        _host = cmdlet.Host;
+
+        // FUTURE: Should look at using own mechanism for this instead of
+        // relying on reflection.
+        object? context = ReflectionInfo.CmdletGetContext.Invoke(cmdlet, Array.Empty<object>());
+        _usingVars = (Dictionary<string, object>?)ReflectionInfo.SbkToPwshConverterType.Invoke(null, new object?[]
+        {
+            Action, true, context, vars
+        });
+    }
+
+    internal override RunningHook CreateRunningHook(GCHandle originalMethod)
+    {
+        ScriptBlockDelegate sbkDelegate = ScriptBlockDelegate.Create(
+            DllName,
+            MethodName,
+            GetReturnType(),
+            GetParameterTypes());
+        InvokeContext invokeContext = sbkDelegate.CreateInvokeContext(Action, _host, _usingVars ?? new(),
+            originalMethod);
+        Delegate invokeDelegate = sbkDelegate.CreateNativeDelegate(invokeContext);
+
+        return new(invokeDelegate, invokeContext, originalMethod);
+    }
+
+    private TypeInformation GetReturnType()
+    {
+        return ProcessOutputType(
+            (IEnumerable<AttributeAst>?)_scriptAst.ParamBlock?.Attributes ?? Array.Empty<AttributeAst>());
+    }
+
+    private TypeInformation[] GetParameterTypes()
+    {
+        return _scriptAst.ParamBlock?.Parameters
+            ?.Select(p => ProcessParameterType(p))
+            ?.ToArray() ?? Array.Empty<TypeInformation>();
+    }
+
+    private static TypeInformation ProcessOutputType(IEnumerable<AttributeAst> paramAttributes)
+    {
+        MarshalAsAttribute? marshalAs = null;
+
+        Type? outputType = null;
+        foreach (AttributeBaseAst attr in paramAttributes)
+        {
+            if (attr is not AttributeAst ast)
+            {
+                continue;
+            }
+
+            if (
+                ast.TypeName.GetReflectionType() == typeof(OutputTypeAttribute) &&
+                ast.PositionalArguments.Count == 1 &&
+                ast.PositionalArguments[0] is TypeExpressionAst outputTypeAst
+            )
+            {
+                outputType = outputTypeAst.TypeName.GetReflectionType();
+            }
+            else if (marshalAs == null)
+            {
+                marshalAs = GetMarshalAs(ast);
+            }
+        }
+
+        return new(outputType ?? typeof(void), marshalAs: marshalAs);
+    }
+
+    private static TypeInformation ProcessParameterType(ParameterAst parameter)
+    {
+
+        MarshalAsAttribute? marshalAs = null;
+        bool isIn = false;
+        bool isOut = false;
+
+        Type paramType;
+        if (parameter.StaticType.IsGenericType && parameter.StaticType.GetGenericTypeDefinition() == typeof(Ref<>))
+        {
+            paramType = parameter.StaticType.GetGenericArguments().FirstOrDefault(typeof(object)).MakeByRefType();
+        }
+        else
+        {
+            paramType = parameter.StaticType;
+        }
+
+        foreach (AttributeBaseAst attr in parameter.Attributes)
+        {
+            if (attr is not AttributeAst ast)
+            {
+                continue;
+            }
+
+            isIn = isIn || ast.TypeName.GetReflectionType() == typeof(InAttribute);
+            isOut = isOut || ast.TypeName.GetReflectionType() == typeof(OutAttribute);
+            if (marshalAs == null)
+            {
+                marshalAs = GetMarshalAs(ast);
+            }
+        }
+
+        return new(paramType, name: parameter.Name.VariablePath.UserPath, marshalAs: marshalAs,
+            isIn: isIn, isOut: isOut);
+    }
+
+    private static MarshalAsAttribute? GetMarshalAs(AttributeAst attribute)
+    {
+        if (
+            attribute.TypeName.GetReflectionType() == typeof(MarshalAsAttribute) &&
+            attribute.PositionalArguments.Count == 1 &&
+            attribute.PositionalArguments[0] is MemberExpressionAst unmanagedTypeAst &&
+            unmanagedTypeAst.Member.SafeGetValue() is string rawUnmanagedType &&
+            unmanagedTypeAst.Expression is TypeExpressionAst typeExpAst &&
+            typeExpAst.TypeName.GetReflectionType() == typeof(UnmanagedType) &&
+            Enum.TryParse<UnmanagedType>(rawUnmanagedType, true, out var unmanagedType)
+        )
+        {
+            // TODO: Set named values like SizeConst
+            return new MarshalAsAttribute(unmanagedType);
+        }
+
+        return null;
+    }
+}
+
+public sealed class TypeInformation
 {
     public Type Type { get; }
     public string? Name { get; }

@@ -17,12 +17,6 @@ $CSharpPath = [IO.Path]::Combine($PSScriptRoot, 'src')
 $ReleasePath = [IO.Path]::Combine($BuildPath, $ModuleName, $Version)
 $IsUnix = $PSEdition -eq 'Core' -and -not $IsWindows
 
-[xml]$csharpProjectInfo = Get-Content ([IO.Path]::Combine($CSharpPath, $ModuleName, '*.csproj'))
-$TargetFrameworks = @($csharpProjectInfo.Project.PropertyGroup.TargetFrameworks.Split(
-        ';', [StringSplitOptions]::RemoveEmptyEntries))
-
-$PSFramework = $TargetFrameworks[0]
-
 task Clean {
     if (Test-Path $ReleasePath) {
         Remove-Item $ReleasePath -Recurse -Force
@@ -60,7 +54,11 @@ task BuildManaged {
             "-p:Version=$Version"
         )
         try {
-            foreach ($framework in $TargetFrameworks) {
+            [xml]$csharpProjectInfo = Get-Content ([IO.Path]::Combine($_.FullName, '*.csproj'))
+            $targetFrameworks = @($csharpProjectInfo.Project.PropertyGroup[0].TargetFrameworks.Split(
+                    ';', [StringSplitOptions]::RemoveEmptyEntries))
+
+            foreach ($framework in $targetFrameworks) {
                 Write-Host "Compiling $($_.Name) for $framework"
                 dotnet @arguments --framework $framework
 
@@ -85,16 +83,23 @@ task CopyToRelease {
     Copy-Item @copyParams
 
     $nativeBuildFolder = [IO.Path]::Combine($CSharpPath, "$($ModuleName)Native", 'bin', $Configuration, 'final')
+    $nativeBinFolder = [IO.Path]::Combine($ReleasePath, 'bin', 'x64')
+    if (-not (Test-Path -LiteralPath $nativeBinFolder)) {
+        New-Item -Path $nativeBinFolder -ItemType Directory | Out-Null
+    }
+    Copy-Item ([IO.Path]::Combine($nativeBuildFolder, '*.dll')) -Destination $nativeBinFolder
 
-    foreach ($framework in $TargetFrameworks) {
+    [xml]$csharpProjectInfo = Get-Content ([IO.Path]::Combine($CSharpPath, $ModuleName, '*.csproj'))
+    $targetFrameworks = @($csharpProjectInfo.Project.PropertyGroup[0].TargetFrameworks.Split(
+            ';', [StringSplitOptions]::RemoveEmptyEntries))
+
+    foreach ($framework in $targetFrameworks) {
         $buildFolder = [IO.Path]::Combine($CSharpPath, $ModuleName, 'bin', $Configuration, $framework, 'publish')
         $binFolder = [IO.Path]::Combine($ReleasePath, 'bin', $framework)
         if (-not (Test-Path -LiteralPath $binFolder)) {
             New-Item -Path $binFolder -ItemType Directory | Out-Null
         }
         Copy-Item ([IO.Path]::Combine($buildFolder, "*")) -Destination $binFolder -Exclude "System.Management.Automation.*"
-
-        Copy-Item ([IO.Path]::Combine($nativeBuildFolder, '*.dll')) -Destination $binFolder
     }
 }
 
@@ -239,9 +244,15 @@ task DoTest {
     if ($Configuration -eq 'Debug') {
         # We use coverlet to collect code coverage of our binary
         $unitCoveragePath = [IO.Path]::Combine($resultsPath, 'UnitCoverage.json')
+        $pwshFramework = if ($PSVersionTable.PSVersion.Major -eq 7 -and $PSVersionTable.PSVersion.Minor -eq 2) {
+            'net6.0-windows'
+        }
+        else {
+            'net7.0-windows'
+        }
 
         $arguments = @(
-            '"{0}"' -f ([IO.Path]::Combine($ReleasePath, 'bin', $PSFramework))
+            '"{0}"' -f ([IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework))
             '--target', $pwsh
             '--targetargs', (($arguments -join " ") -replace '"', '\"')
             '--output', ([IO.Path]::Combine($resultsPath, 'Coverage.xml'))

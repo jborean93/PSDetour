@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Management.Automation;
+using System.Runtime.InteropServices;
 
 namespace PSDetour;
 
@@ -12,7 +13,10 @@ internal static class GlobalState
     internal static SafeLoadedLibrary? _nativePSDetour = null;
 
     public static string NativePath { get; } = Path.GetFullPath(Path.Combine(
-        Path.GetDirectoryName(typeof(GlobalState).Assembly.Location) ?? "", "PSDetourNative.dll"));
+        Path.GetDirectoryName(typeof(GlobalState).Assembly.Location) ?? "",
+        "..",
+        RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant(),
+        "PSDetourNative.dll"));
     public static string PwshAssemblyDir { get; } = Path.GetDirectoryName(typeof(PSObject).Assembly.Location) ?? "";
     public static Lazy<IntPtr> InjectAddr = new(() => GetProcAddress(NativePath, "inject"));
     public static readonly Lazy<IntPtr> LoadLibraryAddr = new(() => GetProcAddress("Kernel32.dll", "LoadLibraryW"));
