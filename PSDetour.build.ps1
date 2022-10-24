@@ -292,7 +292,7 @@ task DoInstall {
 task Build -Jobs Clean, AssertDetours, AssertSMA, BuildManaged, CopyToRelease, BuildDocs, Sign, Package
 
 # FIXME: Work out why we need the obj and bin folder for coverage to work
-task Test -Jobs BuildManaged, Analyze, DoUnitTest, DoTest
+task Test -Jobs AssertDetours, AssertSMA, BuildManaged, Analyze, DoUnitTest, DoTest
 task Install -Jobs DoInstall
 
 task . Build
