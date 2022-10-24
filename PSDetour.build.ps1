@@ -236,23 +236,23 @@ task DoTest {
         if (-not $IsUnix) {
             '-ExecutionPolicy', 'Bypass'
         }
-        '-File', ('"{0}"' -f $pesterScript)
-        '-TestPath', ('"{0}"' -f [IO.Path]::Combine($PSScriptRoot, 'tests'))
-        '-OutputFile', ('"{0}"' -f $resultsFile)
+        '-File', $pesterScript
+        '-TestPath', ([IO.Path]::Combine($PSScriptRoot, 'tests'))
+        '-OutputFile', $resultsFile
     )
 
     if ($Configuration -eq 'Debug') {
         # We use coverlet to collect code coverage of our binary
         $unitCoveragePath = [IO.Path]::Combine($resultsPath, 'UnitCoverage.json')
+        $targetArgs = '"' + ($arguments -join '" "') + '"'
 
         if ($PSVersionTable.PSVersion.Major -eq 7 -and $PSVersionTable.PSVersion.Minor -eq 2) {
             $pwshFramework = 'net6.0-windows'
-            $targetArgs = ($arguments -join " ") -replace '"', '\"'
+            $targetArgs = '"' + ($targetArgs -replace '"', '\"') + '"'
             $watchFolder = '"{0}"' -f ([IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework))
         }
         else {
             $pwshFramework = 'net7.0-windows'
-            $targetArgs = $arguments -join " "
             $watchFolder = [IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework)
         }
 
