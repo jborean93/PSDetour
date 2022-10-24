@@ -3,15 +3,17 @@ using namespace System.Net
 
 [CmdletBinding()]
 param(
+    [Parameter(Mandatory)]
     [ValidateNotNullOrEmpty()]
-    [string] $RequiredVersion
+    [string]$RequiredVersion
 )
 end {
+    $downloadUrl = "https://github.com/PowerShell/PowerShell/releases/download/v$RequiredVersion/PowerShell-$RequiredVersion-win-x64.zip"
     $targetFolder = $PSCmdlet.GetUnresolvedProviderPathFromPSPath(
-        "$PSScriptRoot/../output/lib")
-    $fileName = "Detours-$RequiredVersion.zip"
+        "$PSScriptRoot/../output/pwsh-$RequiredVersion")
+    $fileName = "pwsh-$RequiredVersion.zip"
 
-    if (Test-Path $targetFolder\Detours) {
+    if (Test-Path $targetFolder\pwsh.exe) {
         return
     }
 
@@ -24,8 +26,7 @@ end {
         & {
             $ProgressPreference = 'SilentlyContinue'
             [ServicePointManager]::SecurityProtocol = 'Tls12'
-            $downloadUri = "https://github.com/microsoft/Detours/archive/refs/tags/v$RequiredVersion.zip"
-            Invoke-WebRequest -UseBasicParsing -Uri $downloadUri -OutFile $targetFolder/$fileName
+            Invoke-WebRequest -UseBasicParsing -Uri $downloadUrl -OutFile $targetFolder/$fileName
         }
     }
     finally {
@@ -41,6 +42,5 @@ end {
         $global:ProgressPreference = $oldPreference
     }
 
-    Rename-Item -LiteralPath $targetFolder/Detours-$RequiredVersion -NewName Detours
     Remove-Item -LiteralPath $targetFolder/$fileName
 }

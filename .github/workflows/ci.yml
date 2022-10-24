@@ -27,6 +27,10 @@ jobs:
     - name: Check out repository
       uses: actions/checkout@v2
 
+    - uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '7.0.100-rc.2.22477.23'
+
     - name: Build module - Debug
       shell: pwsh
       run: ./build.ps1 -Configuration $env:BUILD_CONFIGURATION -Task Build
@@ -50,14 +54,15 @@ jobs:
     name: test
     needs:
     - build
-    runs-on: ${{ matrix.info.os }}
+    runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
         info:
-        - name: PS x64
-          os: windows-latest
-          psversion: pwsh
+        - name: PS 7.2 x64
+          psversion: '7.2.7'
+        - name: PS 7.3 x64
+          psversion: 7.3.0-preview.8
 
     steps:
     - uses: actions/checkout@v2
@@ -67,6 +72,11 @@ jobs:
       with:
         name: PSModule
         path: output
+
+    - name: Install PowerShell
+      shell: pwsh
+      run: |
+        tools/AssertPwsh.ps1 -RequiredVersion '${{ matrix.info.psversion }}'
 
     - name: Install Built PowerShell Module
       shell: pwsh
@@ -88,7 +98,7 @@ jobs:
     - name: Run Tests
       shell: pwsh
       run: |
-        & "${{ matrix.info.psversion }}" -NoProfile -File ./build.ps1 -Configuration $env:BUILD_CONFIGURATION -Task Test
+        & "output/pwsh-${{ matrix.info.psversion }}/pwsh.exe" -NoProfile -File ./build.ps1 -Configuration $env:BUILD_CONFIGURATION -Task Test
         exit $LASTEXITCODE
 
     - name: Upload Test Results
