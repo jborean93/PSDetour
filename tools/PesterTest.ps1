@@ -25,13 +25,14 @@ foreach ($req in $requirements.GetEnumerator()) {
 }
 
 [PSCustomObject]$PSVersionTable |
-    Select-Object -Property *, @{N='Architecture';E={
-        switch ([IntPtr]::Size) {
-            4 { 'x86' }
-            8 { 'x64' }
-            default { 'Unknown' }
+    Select-Object -Property *, @{N = 'Architecture'; E = {
+            switch ([IntPtr]::Size) {
+                4 { 'x86' }
+                8 { 'x64' }
+                default { 'Unknown' }
+            }
         }
-    }} |
+    } |
     Format-List |
     Out-Host
 

@@ -1,7 +1,10 @@
 using System;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
+using System.Text;
 
 namespace PSDetour.Commands;
 
@@ -18,7 +21,7 @@ public class NewPSDetourSession : PSCmdlet
     public ProcessIntString[] ProcessId { get; set; } = Array.Empty<ProcessIntString>();
 
     [Parameter()]
-    public int OpenTimeout { get; set; } = InjectedPipeConnectionInfo.DefaultOpenTimeout;
+    public int OpenTimeoutMS { get; set; } = 5000;
 
     [Parameter()]
     public PSPrimitiveDictionary? ApplicationArguments { get; set; }
@@ -35,19 +38,18 @@ public class NewPSDetourSession : PSCmdlet
             "..",
             "PSDetour.psd1"));
 
-        foreach (ProcessIntString pid in ProcessId)
+        foreach (ProcessIntString proc in ProcessId)
         {
-            InjectedPipeConnectionInfo connInfo = new(pid.ProcessObj.Id, OpenTimeout);
+            string pipeName = GetProcessPipeName(proc.ProcessObj);
+            if (Directory.GetFiles(@"\\.\pipe\", pipeName).Length < 1)
+            {
+                DetouredProcess.InjectPowerShell(proc.ProcessObj.Id, OpenTimeoutMS, GlobalState.PwshAssemblyDir);
+            }
 
-#if PWSH72
-            // Cannot use CreateRunspace in 7.2.x as it explicitly checks the
-            // type of connInfo to be one of the builtin ones of pwsh. Instead
-            // will create the RemoteRunspace object directly.
-            RemoteRunspace rs = new(TypeTable.LoadDefaultTypeFiles(), connInfo, Host, ApplicationArguments, name: Name);
-#else
+            NamedPipeConnectionInfo connInfo = new(pipeName, OpenTimeoutMS);
+
             Runspace rs = RunspaceFactory.CreateRunspace(
                 connInfo, Host, TypeTable.LoadDefaultTypeFiles(), ApplicationArguments, name: Name);
-#endif
             try
             {
                 // FIXME: Use OpenAsync so we can cancel it
@@ -60,7 +62,7 @@ public class NewPSDetourSession : PSCmdlet
                     e.InnerException ?? e,
                     "errorId",
                     ErrorCategory.OpenError,
-                    pid.ProcessObj.Id));
+                    proc.ProcessObj.Id));
                 continue;
             }
 
@@ -72,7 +74,7 @@ public class NewPSDetourSession : PSCmdlet
             ps.Invoke();
 
 #if PWSH72
-            PSSession session = new(rs);
+            PSSession session = new((RemoteRunspace)rs);
 #else
             PSSession session = PSSession.Create(
                 runspace: rs,
@@ -81,5 +83,19 @@ public class NewPSDetourSession : PSCmdlet
 #endif
             WriteObject(session);
         }
+    }
+
+    internal static string GetProcessPipeName(Process proc)
+    {
+        // This is the same logic used in pwsh internally
+        StringBuilder pipeNameBuilder = new();
+        pipeNameBuilder.Append("PSHost.")
+            .Append(proc.StartTime.ToFileTime().ToString(CultureInfo.InvariantCulture))
+            .Append('.')
+            .Append(proc.Id.ToString(CultureInfo.InvariantCulture))
+            .Append(".DefaultAppDomain.")
+            .Append(proc.ProcessName);
+
+        return pipeNameBuilder.ToString();
     }
 }

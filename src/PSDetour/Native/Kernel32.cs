@@ -37,24 +37,6 @@ internal static class Kernel32
         return thread;
     }
 
-    [DllImport("Kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "CreateEventW", SetLastError = true)]
-    private static extern SafeWaitHandle NativeCreateEventW(
-        IntPtr lpEventAttributes,
-        bool bManualReset,
-        bool bInitialState,
-        string? lpName);
-
-    public static SafeWaitHandle CreateEventW(string? name, bool manual, bool initialState)
-    {
-        SafeWaitHandle waitHandle = NativeCreateEventW(IntPtr.Zero, manual, initialState, name);
-        if (waitHandle.IsInvalid)
-        {
-            throw new Win32Exception();
-        }
-
-        return waitHandle;
-    }
-
     [DllImport("Kernel32.dll", EntryPoint = "DuplicateHandle", SetLastError = true)]
     private static extern bool NativeDuplicateHandle(
         SafeHandle hSourceProcessHandle,

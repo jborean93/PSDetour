@@ -7,6 +7,9 @@ This is done through embedding a PowerShell instance in the target process and e
 This feature is experimental and can have side effects in the target process.
 If done incorrectly, the hook can cause the process to crash.
 
+Note that creating a session in a process is an irreversible action.
+Once PowerShell has been loaded it will continue to run for the lifetime of the process and cannot be stopped.
+
 # LONG DESCRIPTION
 A remote PSDetour session is split into 2 parts:
 
@@ -50,3 +53,4 @@ Invoke-Command -Session $session -ScriptBlock {
 It can also be used interactively with `Enter-PSSession` which gives the caller more control over when the hooks start and stop.
 
 Once the session is no longer needed, use `Remove-PSSession` to close the connection.
+Remember that once a process has been tainted with PSDetour it will still continue to run the listener in the background until the process ends.

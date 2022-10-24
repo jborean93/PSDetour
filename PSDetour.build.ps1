@@ -244,17 +244,22 @@ task DoTest {
     if ($Configuration -eq 'Debug') {
         # We use coverlet to collect code coverage of our binary
         $unitCoveragePath = [IO.Path]::Combine($resultsPath, 'UnitCoverage.json')
-        $pwshFramework = if ($PSVersionTable.PSVersion.Major -eq 7 -and $PSVersionTable.PSVersion.Minor -eq 2) {
-            'net6.0-windows'
+
+        if ($PSVersionTable.PSVersion.Major -eq 7 -and $PSVersionTable.PSVersion.Minor -eq 2) {
+            $pwshFramework = 'net6.0-windows'
+            $targetArgs = ($arguments -join " ") -replace '"', '\"'
+            $watchFolder = '"{0}"' -f ([IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework))
         }
         else {
-            'net7.0-windows'
+            $pwshFramework = 'net7.0-windows'
+            $targetArgs = $arguments -join " "
+            $watchFolder = [IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework)
         }
 
         $arguments = @(
-            '"{0}"' -f ([IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework))
+            $watchFolder
             '--target', $pwsh
-            '--targetargs', (($arguments -join " ") -replace '"', '\"')
+            '--targetargs', $targetArgs
             '--output', ([IO.Path]::Combine($resultsPath, 'Coverage.xml'))
             '--format', 'cobertura'
             if (Test-Path -LiteralPath $unitCoveragePath) {

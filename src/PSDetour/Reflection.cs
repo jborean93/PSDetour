@@ -39,11 +39,11 @@ internal static class ReflectionInfo
                     new(assemblyName),
                     AssemblyBuilderAccess.Run);
 
-                // CustomAttributeBuilder ignoresAccessChecksTo = new(
-                //     typeof(IgnoresAccessChecksToAttribute).GetConstructor(new Type[] { typeof(string) })!,
-                //     new object[] { typeof(GlobalState).Assembly.GetName().Name! }
-                // );
-                // builder.SetCustomAttribute(ignoresAccessChecksTo);
+                CustomAttributeBuilder ignoresAccessChecksTo = new(
+                    typeof(IgnoresAccessChecksToAttribute).GetConstructor(new Type[] { typeof(string) })!,
+                    new object[] { typeof(GlobalState).Assembly.GetName().Name! }
+                );
+                builder.SetCustomAttribute(ignoresAccessChecksTo);
 
                 _builder = builder.DefineDynamicModule(assemblyName);
             }
