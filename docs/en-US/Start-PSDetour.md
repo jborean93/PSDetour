@@ -14,13 +14,14 @@ Starts a detour session.
 ## SYNTAX
 
 ```
-Start-PSDetour [-Hook] <ScriptBlockHook[]> [<CommonParameters>]
+Start-PSDetour [-Hook] <DetourHook[]> [-State <Object>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
 
 Starts a detour session with all the hooks defined in the current session.
 Use `New-PSDetourHook` to define the hooks to setup for the session.
+Once started, the detours will be in place until `Stop-PSDetour` is called.
 
 ## EXAMPLES
 
@@ -41,7 +42,7 @@ Starts the detour session with the hooks specified and does work that should be 
 The hooks from `New-PSDetourHook` to setup in the detour session.
 
 ```yaml
-Type: ScriptBlockHook[]
+Type: DetourHook[]
 Parameter Sets: (All)
 Aliases:
 
@@ -49,6 +50,23 @@ Required: True
 Position: 0
 Default value: None
 Accept pipeline input: True (ByPropertyName, ByValue)
+Accept wildcard characters: False
+```
+
+### -State
+A custom object to inject into the running hooks accessible under `$this.State`.
+This can be any object that will be accessible in the hook context regardless of whether it is running in the same Runspace or a custom one.
+Alternatively, the `$using:var` syntax can be used which will force the hook to run in a new Runspace with the injected variable present.
+
+```yaml
+Type: Object
+Parameter Sets: (All)
+Aliases:
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
 Accept wildcard characters: False
 ```
 

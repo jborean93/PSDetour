@@ -15,6 +15,22 @@ Describe "New-PSDetourSession" {
         }
     }
 
+    It "Creates a pssession in an already tainted process" {
+        $proc = Start-Process -FilePath cmd.exe -WindowStyle Hidden -PassThru
+        try {
+            $proc | New-PSDetourSession | Remove-PSSession
+
+            $session = New-PSDetourSession -ProcessId $proc
+            $actual = Invoke-Command -Session $session -ScriptBlock { $pid }
+
+            $actual | Should -Be $proc.Id
+        }
+        finally {
+            if ($session) { $session | Remove-PSSession }
+            $proc | Stop-Process -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It "Creates pssession with arguments" {
         $proc = Start-Process -FilePath cmd.exe -WindowStyle Hidden -PassThru
         try {

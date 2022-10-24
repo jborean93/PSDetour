@@ -261,7 +261,6 @@ internal sealed class DetouredProcess
             contextError = msg;
         }
 
-        // FIXME: Use better exception
         return new Exception(
             $"Error when bootstrapping dotnet onto the remote process {pid}: {contextError}",
             innerException);

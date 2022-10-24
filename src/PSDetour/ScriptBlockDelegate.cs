@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -49,16 +50,18 @@ internal class ScriptBlockDelegate
     /// <param name="action">The scriptblock that will be run.</param>
     /// <param name="host">The PSHost to un the scriptblock with.</param>
     /// <param name="usingVars">Variables that are injected into $using:.</param>
+    /// <param name="state">Value to store in the $this.State var.</param>
     /// <param name="originalMethod">The pointer to the non-detoured method.</param>
     /// <returns>The context object.</returns>
     internal InvokeContext CreateInvokeContext(ScriptBlock action, PSHost? host, Dictionary<string, object> usingVars,
-        GCHandle originalMethod)
+        object? state, GCHandle originalMethod)
     {
         return (InvokeContext)Activator.CreateInstance(ContextType, new object?[]
         {
             action,
             host,
             usingVars,
+            state,
             originalMethod
         })!;
     }
@@ -121,13 +124,15 @@ internal class ScriptBlockDelegate
         ConstructorBuilder invokeContextCtor = invokeContextBuilder.DefineConstructor(
             System.Reflection.MethodAttributes.Public,
             CallingConventions.Standard,
-            new[] { typeof(ScriptBlock), typeof(PSHost), typeof(Dictionary<string, object>), typeof(GCHandle) });
+            new[] { typeof(ScriptBlock), typeof(PSHost), typeof(Dictionary<string, object>),
+                typeof(object), typeof(GCHandle) });
         ILGenerator invokeContextCtorIL = invokeContextCtor.GetILGenerator();
         invokeContextCtorIL.Emit(OpCodes.Ldarg, 0);
         invokeContextCtorIL.Emit(OpCodes.Ldarg, 1);
         invokeContextCtorIL.Emit(OpCodes.Ldarg, 2);
         invokeContextCtorIL.Emit(OpCodes.Ldarg, 3);
         invokeContextCtorIL.Emit(OpCodes.Ldarg, 4);
+        invokeContextCtorIL.Emit(OpCodes.Ldarg, 5);
         invokeContextCtorIL.Emit(OpCodes.Call, ReflectionInfo.InvokeContextCtor);
         invokeContextCtorIL.Emit(OpCodes.Ret);
 
@@ -445,12 +450,15 @@ public class InvokeContext
     internal Dictionary<string, object> UsingVariables { get; }
     internal GCHandle OriginalMethod { get; }
 
+    public object? State { get; }
+
     internal InvokeContext(ScriptBlock action, PSHost? host, Dictionary<string, object> usingVariables,
-        GCHandle originalMethod)
+        object? state, GCHandle originalMethod)
     {
         Action = action;
         Host = host;
         UsingVariables = usingVariables;
+        State = state;
         OriginalMethod = originalMethod;
     }
 
@@ -477,6 +485,7 @@ public class InvokeContext
 
     internal static T? WrapInvoke<T>(InvokeContext invokeContext, object[] args)
     {
+        Console.WriteLine("Called");
         MethodInfo invokeMethod = invokeContext.GetType().GetMethod("Invoke",
             args.Select(a => a.GetType()).ToArray())!;
 
@@ -501,6 +510,12 @@ public class InvokeContext
     {
         try
         {
+            // If running on a thread with an active Runspace, favour that.
+            if (Runspace.DefaultRunspace != null && invokeContext.UsingVariables.Count == 0)
+            {
+                return invokeContext.Action.InvokeWithContext(null, new() { new("this", invokeContext) }, args);
+            }
+
             ThreadData.Value = true;
 
             InitialSessionState initialSessionState = InitialSessionState.CreateDefault2();
@@ -529,6 +544,13 @@ public class InvokeContext
             }
 
             return vars;
+        }
+        catch (Exception e)
+        {
+            string errMsg = string.Format("Hook exception {0}: {1}", e.GetType().Name, e.Message);
+            invokeContext.Host?.UI?.WriteErrorLine(errMsg);
+
+            return new();
         }
         finally
         {
@@ -571,6 +593,7 @@ public sealed class ScriptBlockHook : DetourHook
     private Dictionary<string, object>? _usingVars;
     private PSHost? _host;
     private ScriptBlockAst _scriptAst;
+    private object? _state;
     private ThreadLocal<bool> _threadData = new(() => false);
 
     public ScriptBlock Action { get; }
@@ -582,9 +605,15 @@ public sealed class ScriptBlockHook : DetourHook
         _scriptAst = (ScriptBlockAst)action.Ast;
     }
 
-    public void SetHostContext(PSCmdlet cmdlet, Dictionary<string, object>? vars = null)
+    /// <summary>Set context info on the hook.</summary>
+    /// <param name="cmdlet">The cmdlet to get the host info from.</param>
+    /// <param name="state">Var to set on the $this.State var.</param>
+    /// <param name="vars">Extra vars to provide to the using lookup.</param>
+    public void SetHostContext(PSCmdlet cmdlet, object? state = null,
+        Dictionary<string, object>? vars = null)
     {
         _host = cmdlet.Host;
+        _state = state;
 
         // FUTURE: Should look at using own mechanism for this instead of
         // relying on reflection.
@@ -603,7 +632,7 @@ public sealed class ScriptBlockHook : DetourHook
             GetReturnType(),
             GetParameterTypes());
         InvokeContext invokeContext = sbkDelegate.CreateInvokeContext(Action, _host, _usingVars ?? new(),
-            originalMethod);
+            _state, originalMethod);
         Delegate invokeDelegate = sbkDelegate.CreateNativeDelegate(invokeContext);
 
         return new(invokeDelegate, invokeContext, originalMethod);

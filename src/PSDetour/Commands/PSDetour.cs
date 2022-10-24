@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Management.Automation;
 
@@ -19,13 +20,16 @@ public class StartPSDetour : PSCmdlet
     [ValidateNotNullOrEmpty]
     public DetourHook[] Hook { get; set; } = Array.Empty<DetourHook>();
 
+    [Parameter()]
+    public object? State { get; set; }
+
     protected override void ProcessRecord()
     {
         foreach (DetourHook h in Hook)
         {
             if (h is ScriptBlockHook sbkHook)
             {
-                sbkHook.SetHostContext(this);
+                sbkHook.SetHostContext(this, State);
             }
 
             _hooks.Add(h);

@@ -43,6 +43,9 @@ public static class Hook
 
         RunningHooks.Clear();
     }
+
+    [DllImport("Kernel32.dll")]
+    public static extern int GetCurrentProcessId();
 }
 
 public abstract class DetourHook

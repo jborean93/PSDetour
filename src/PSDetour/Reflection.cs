@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Management.Automation;
 using System.Management.Automation.Host;
@@ -64,6 +65,7 @@ internal static class ReflectionInfo
                         typeof(ScriptBlock),
                         typeof(PSHost),
                         typeof(Dictionary<string, object>),
+                        typeof(object),
                         typeof(GCHandle)
                     })!;
             }

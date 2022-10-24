@@ -5,6 +5,7 @@ using System.IO;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
 using System.Text;
+using System.Threading;
 
 namespace PSDetour.Commands;
 
@@ -12,6 +13,9 @@ namespace PSDetour.Commands;
 [OutputType(typeof(PSSession))]
 public class NewPSDetourSession : PSCmdlet
 {
+    private ManualResetEvent? _openEvent = null;
+    private Runspace? _runspace = null;
+
     [Parameter(
         Mandatory = true,
         Position = 0,
@@ -43,27 +47,44 @@ public class NewPSDetourSession : PSCmdlet
             string pipeName = GetProcessPipeName(proc.ProcessObj);
             if (Directory.GetFiles(@"\\.\pipe\", pipeName).Length < 1)
             {
-                DetouredProcess.InjectPowerShell(proc.ProcessObj.Id, OpenTimeoutMS, GlobalState.PwshAssemblyDir);
+                try
+                {
+                    DetouredProcess.InjectPowerShell(proc.ProcessObj.Id, OpenTimeoutMS, GlobalState.PwshAssemblyDir);
+                }
+                catch (Exception e)
+                {
+                    ErrorRecord err = new(
+                        e,
+                        "PSDetourFailedInjection",
+                        ErrorCategory.ConnectionError,
+                        proc.ProcessObj.Id);
+                    WriteError(err);
+                    continue;
+                }
             }
 
             NamedPipeConnectionInfo connInfo = new(pipeName, OpenTimeoutMS);
 
             Runspace rs = RunspaceFactory.CreateRunspace(
                 connInfo, Host, TypeTable.LoadDefaultTypeFiles(), ApplicationArguments, name: Name);
-            try
+
+            using (_openEvent = new ManualResetEvent(false))
             {
-                // FIXME: Use OpenAsync so we can cancel it
-                rs.Open();
-            }
-            catch (Exception e)
-            {
-                WriteError(new ErrorRecord(
-                    // InnerException is most likely the one with more info.
-                    e.InnerException ?? e,
-                    "errorId",
-                    ErrorCategory.OpenError,
-                    proc.ProcessObj.Id));
-                continue;
+                rs.StateChanged += HandleRunspaceStateChanged;
+                rs.OpenAsync();
+                _openEvent?.WaitOne();
+
+                if (rs.RunspaceStateInfo.State == RunspaceState.Broken)
+                {
+                    ErrorRecord err = new(
+                        rs.RunspaceStateInfo.Reason,
+                        "PSDetourFailedConnection",
+                        ErrorCategory.ConnectionError,
+                        proc.ProcessObj.Id);
+
+                    WriteError(err);
+                    continue;
+                }
             }
 
             using PowerShell ps = PowerShell.Create();
@@ -83,6 +104,37 @@ public class NewPSDetourSession : PSCmdlet
 #endif
             WriteObject(session);
         }
+    }
+
+    protected override void StopProcessing()
+    {
+        SetOpenEvent();
+    }
+
+    private void HandleRunspaceStateChanged(object? source, RunspaceStateEventArgs stateEventArgs)
+    {
+        switch (stateEventArgs.RunspaceStateInfo.State)
+        {
+            case RunspaceState.Opened:
+            case RunspaceState.Closed:
+            case RunspaceState.Broken:
+                if (_runspace != null)
+                {
+                    _runspace.StateChanged -= HandleRunspaceStateChanged;
+                }
+
+                SetOpenEvent();
+                break;
+        }
+    }
+
+    private void SetOpenEvent()
+    {
+        try
+        {
+            _openEvent?.Set();
+        }
+        catch (ObjectDisposedException) { }
     }
 
     internal static string GetProcessPipeName(Process proc)

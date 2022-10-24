@@ -7,7 +7,9 @@ Describe "Start|Stop-PSDetour" {
             New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
                 param([int]$Milliseconds)
 
+                # By referencing $using: it will run in a new runspace
                 ($using:state)['args'] = $Milliseconds
+                ($using:state)['rpid'] = [Runspace]::DefaultRunspace.Id
 
                 $this.Invoke($Milliseconds)
             }
@@ -16,6 +18,51 @@ Describe "Start|Stop-PSDetour" {
         Stop-PSDetour
 
         $state.args | Should -Be 5
+        $state.rpid | Should -Not -Be ([Runspace]::DefaultRunspace.Id)
+    }
+
+    It "Hooks method in same runspace if no using vars are present" {
+        $state = @{}
+        Start-PSDetour -Hook @(
+            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+                param([int]$Milliseconds)
+
+                $state.args = $Milliseconds
+                $state.rpid = [Runspace]::DefaultRunspace.Id
+
+                $this.Invoke($Milliseconds)
+            }
+        )
+        [PSDetourTest.Native]::Sleep(5)
+        Stop-PSDetour
+
+        $state.args | Should -Be 5
+        $state.rpid | Should -Be ([Runspace]::DefaultRunspace.Id)
+    }
+
+    It "Hooks method with custom state object" {
+        $customState = [PSCustomObject]@{
+            Args = $null
+            RPid = $null
+            Type = $null
+        }
+        Start-PSDetour -State $customState -Hook @(
+            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+                param([int]$Milliseconds)
+
+                $this.State.Args = $Milliseconds
+                $this.State.RPid = [Runspace]::DefaultRunspace.Id
+                $this.State.Type = $this.State.GetType().Name
+
+                $this.Invoke($Milliseconds)
+            }
+        )
+        [PSDetourTest.Native]::Sleep(5)
+        Stop-PSDetour
+
+        $customState.Args | Should -Be 5
+        $customState.RPid | Should -Be ([Runspace]::DefaultRunspace.Id)
+        $customState.Type | Should -Be 'PSCustomObject'
     }
 
     It "Hooks a method with no parameters" {

@@ -9,6 +9,10 @@
         "tools/ResGen": true,
         "tools/dotnet": true,
     },
+    // platyPS generates docs that will trigger the auto formatter
+    "[markdown]": {
+        "editor.formatOnSave": false
+    },
     //-------- PowerShell configuration --------
     // Binary modules cannot be unloaded so running in separate processes solves that problem
     //"powershell.debugging.createTemporaryIntegratedConsole": true,

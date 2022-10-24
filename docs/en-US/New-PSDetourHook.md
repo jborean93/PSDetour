@@ -28,6 +28,8 @@ Take care when typing the return and parameter types as a misconfiguration can c
 A parameter can be marked with the `MarshalAs` attribute to denote the marshalling type behaviour to use.
 Currently only the `UnmanagedType`, `In`, and `Out` attributes can be set.
 
+See [about_PSDetourMarshalling](./about_PSDetourMarshalling.md) for more information around how to define a hook and its input/output types.
+
 ## EXAMPLES
 
 ### Example 1 - Hook CreateDirectoryW with string marshalling

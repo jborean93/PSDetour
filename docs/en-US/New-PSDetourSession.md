@@ -14,13 +14,18 @@ Creates a PSRemoting session to another process.
 ## SYNTAX
 
 ```
-New-PSDetourSession [-ProcessId] <ProcessIntString[]> [-OpenTimeout <Int32>] [<CommonParameters>]
+New-PSDetourSession [-ProcessId] <ProcessIntString[]> [-OpenTimeoutMS <Int32>]
+ [-ApplicationArguments <PSPrimitiveDictionary>] [-Name <String>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
 
 Creates a PSRemoting session to another process by injecting a running version of PowerShell into a new thread.
 This can be used to run commands remotely in any process and not just PowerShell.
+
+Due to the nature of how PSDetour hooks into the remote process, this is something that cannot be undone.
+Once a process has been tainted it will continue to run the PowerShell listener until the target process ends.
+See [about_PSDetourSessions](./about_PSDetourSessions.md) for more information.
 
 ## EXAMPLES
 
@@ -46,8 +51,38 @@ Creates a PSSession to the process with the id `1234` and runs the `$pid` comman
 
 ## PARAMETERS
 
-### -OpenTimeout
+### -ApplicationArguments
+Any custom arguments to set in the remote session under `$PSSenderInfo.ApplicationArguments`.
+The keys must be a string and the values can only be primitive types like integers, strings, etc.
 
+```yaml
+Type: PSPrimitiveDictionary
+Parameter Sets: (All)
+Aliases:
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -Name
+Custom name to call the remote runspace.
+
+```yaml
+Type: String
+Parameter Sets: (All)
+Aliases:
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -OpenTimeoutMS
 The timeout in milliseconds to wait until the session has been opened.
 
 ```yaml

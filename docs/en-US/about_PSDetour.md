@@ -12,19 +12,27 @@ For more information around using PSDetour sessions in other processes, see [abo
 
 As hooks traverse the boundary between managed (dotnet) and unmanaged (C) code, the way that arguments are transferred across these boundaries is very important.
 Using bad type arguments can cause the whole process to crash.
-For more information around type managemenet in hooks, see [about_PSDeoutrMarshalling](./about_PSDetourMarshalling.md).
+For more information around type managemenet in hooks, see [about_PSDetourMarshalling](./about_PSDetourMarshalling.md).
 
 # HOOK DETAILS
 A hook in PSDetour is define by a PowerShell scriptblock.
 When the function is hooked, the PowerShell scriptblock will be invoked instead.
-It is invoked in a brand new Runspace and will not have access to the same variables as the parent.
+A hook can either be run in the same Runspace as where PowerShell is running, or a brand new Runspace is created.
+The existing Runspace is used only if:
+
+* The hooked function is running on the same thread as PowerShell itself, and
+* No `$using:...` variables were referenced in the hook
+
+If the detoured function was called from another thread, or `$using:...` was used in the action, then the hook is run in a brand new Runspace.
+This Runspace won't have access to the parents scope, so any outside information must be passed in with the `$using:...` syntax of through `$this.State` and a state object when starting the detour.
+
 The `$using:` prefix can be used to inject variables from the outside, just like it can be done with `ForEach-Object -Parallel`.
 It is up to the autor to define what the scriptblock can do but keep in mind doing nothing could lead to fatal errors as the callers might expect things to happen during that call.
 The key components of a scriptblock that is used a hook are:
 
 * `[OutputType]` - to denote the return type of the function to hook
 * `param(...)` - all the arguments/parameters and their types of the function to hook
-* `$this` - a special variable that contains metadata about the hook, currently only the `Invoke` method is implemented.
+* `$this` - a special variable that contains metadata about the hook, currently only the `Invoke` method and `State` property is implemented.
 * `$using:...` - injects the variable named by `...` into the running action hook
 
 An example of a hook that just logs the input parameters and return values would look like:
@@ -62,3 +70,38 @@ $hook = New-PSDetourHook -DllName Kernel32 -MethodName OpenProcess -Action {
 ```
 
 The `New-PSDetourHook` only defines the hook metadata, a hook is not enabled until it is passed into `Start-PSDetour`.
+
+The state object is another method that can be used to access data inside the running hook.
+Unlike the `$using:...` syntax, or refering to a variable outside, the state object works when the action is run in the current runspace or when a new one is spawned.
+The state object can be any object, including a hashtable with custom key/values.
+It is specified under the `-State` parameter of `Start-PSDetour` and accessed in the running action through `$this.State` like so:
+
+```powershell
+$state = @{
+    foo = 'bar'
+}
+
+$hook = New-PSDetourHook -DllName Kernel32 -MethodName OpenProcess -Action {
+    [OutputType([IntPtr])]
+    param (
+        [int]$Access,
+        [bool]$InheritHandle,
+        [int]$ProcessId
+    )
+
+    Write-Host "OpenProcess ran with foo state $($this.State.foo)"
+    $this.Invoke($Access, $InheritHandle, $ProcessId)
+
+    # The state object can also be modified in the hook action.
+    $this.State.foo = 'other'
+}
+
+Start-PSDetour -Hook $hook -State $state
+
+...
+
+Stop-PSDetour
+
+# The foo key will be modified if the hook was run
+$state
+```
