@@ -67,6 +67,10 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
+    - uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '7.0.100-rc.2.22477.23'
+
     - name: Restore Built PowerShell Module
       uses: actions/download-artifact@v2
       with:
