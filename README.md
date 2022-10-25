@@ -5,7 +5,7 @@
 [![PowerShell Gallery](https://img.shields.io/powershellgallery/dt/PSDetour.svg)](https://www.powershellgallery.com/packages/PSDetour)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/jborean93/PSDetour/blob/main/LICENSE)
 
-Interact with the Win32 APIs used to create processes.
+Hooke C APIs in PowerShell as well as run PowerShell in other local processes.
 See [about_PSDetour](docs/en-US/about_PSDetour.md) for more details.
 
 ## Documentation
