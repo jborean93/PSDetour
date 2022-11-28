@@ -25,11 +25,7 @@ jobs:
     runs-on: windows-latest
     steps:
     - name: Check out repository
-      uses: actions/checkout@v2
-
-    - uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: '7.0.100-rc.2.22477.23'
+      uses: actions/checkout@v3
 
     - name: Build module - Debug
       shell: pwsh
@@ -45,7 +41,7 @@ jobs:
         PSMODULE_SIGNING_CERT_PASSWORD: ${{ secrets.PSMODULE_SIGNING_CERT_PASSWORD }}
 
     - name: Capture PowerShell Module
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: PSModule
         path: output/*.nupkg
@@ -59,20 +55,16 @@ jobs:
       fail-fast: false
       matrix:
         info:
-        - name: PS 7.2 x64
+        - name: PS_7.2_x64
           psversion: '7.2.7'
-        - name: PS 7.3 x64
-          psversion: 7.3.0-preview.8
+        - name: PS_7.3_x64
+          psversion: '7.3.0'
 
     steps:
-    - uses: actions/checkout@v2
-
-    - uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: '7.0.100-rc.2.22477.23'
+    - uses: actions/checkout@v3
 
     - name: Restore Built PowerShell Module
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: PSModule
         path: output
@@ -107,21 +99,21 @@ jobs:
 
     - name: Upload Test Results
       if: always()
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: Unit Test Results (${{ matrix.info.name }})
         path: ./output/TestResults/Pester.xml
 
     - name: Upload Coverage Results
       if: always() && !startsWith(github.ref, 'refs/tags/v')
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: Coverage Results (${{ matrix.info.name }})
         path: ./output/TestResults/Coverage.xml
 
     - name: Upload Coverage to codecov
       if: always() && !startsWith(github.ref, 'refs/tags/v')
-      uses: codecov/codecov-action@v1
+      uses: codecov/codecov-action@v3
       with:
         files: ./output/TestResults/Coverage.xml
         flags: ${{ matrix.info.name }}
@@ -135,7 +127,7 @@ jobs:
     runs-on: windows-latest
     steps:
     - name: Restore Built PowerShell Module
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v3
       with:
         name: PSModule
         path: ./
