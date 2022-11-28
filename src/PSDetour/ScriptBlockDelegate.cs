@@ -485,7 +485,6 @@ public class InvokeContext
 
     internal static T? WrapInvoke<T>(InvokeContext invokeContext, object[] args)
     {
-        Console.WriteLine("Called");
         MethodInfo invokeMethod = invokeContext.GetType().GetMethod("Invoke",
             args.Select(a => a.GetType()).ToArray())!;
 
