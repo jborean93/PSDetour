@@ -604,6 +604,13 @@ public sealed class ScriptBlockHook : DetourHook
         _scriptAst = (ScriptBlockAst)action.Ast;
     }
 
+    public ScriptBlockHook(IntPtr address, ScriptBlock action)
+        : base(address)
+    {
+        Action = action;
+        _scriptAst = (ScriptBlockAst)action.Ast;
+    }
+
     /// <summary>Set context info on the hook.</summary>
     /// <param name="cmdlet">The cmdlet to get the host info from.</param>
     /// <param name="state">Var to set on the $this.State var.</param>
