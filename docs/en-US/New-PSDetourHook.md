@@ -13,8 +13,14 @@ Create a PSDetour hook from a scriptblock.
 
 ## SYNTAX
 
+### Name (Default)
 ```
 New-PSDetourHook [-DllName] <String> [-MethodName] <String> [-Action] <ScriptBlock> [<CommonParameters>]
+```
+
+### Address
+```
+New-PSDetourHook -Address <IntPtr> [-Action] <ScriptBlock> [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -104,13 +110,29 @@ Accept pipeline input: False
 Accept wildcard characters: False
 ```
 
+### -Address
+Hook the method at the address specified.
+This can be used to hook methods that are not publicly exported by name.
+
+```yaml
+Type: IntPtr
+Parameter Sets: Address
+Aliases:
+
+Required: True
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
 ### -DllName
 
 The DLL name or path where the C function to hook is defined.
 
 ```yaml
 Type: String
-Parameter Sets: (All)
+Parameter Sets: Name
 Aliases:
 
 Required: True
@@ -126,7 +148,7 @@ The C function name/symbol to hook.
 
 ```yaml
 Type: String
-Parameter Sets: (All)
+Parameter Sets: Name
 Aliases:
 
 Required: True

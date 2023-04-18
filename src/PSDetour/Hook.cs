@@ -21,8 +21,16 @@ public static class Hook
 
         foreach (DetourHook hook in hooks)
         {
-            string hookName = $"{hook.DllName}.{hook.MethodName}";
-            IntPtr originalMethodPtr = GlobalState.GetProcAddress(hook.DllName, hook.MethodName);
+            IntPtr originalMethodPtr;
+            if (hook.Address != IntPtr.Zero)
+            {
+                originalMethodPtr = hook.Address;
+            }
+            else
+            {
+                originalMethodPtr = GlobalState.GetProcAddress(hook.DllName, hook.MethodName);
+            }
+
             GCHandle originalMethod = GCHandle.Alloc(originalMethodPtr, GCHandleType.Pinned);
 
             RunningHook runningHook = hook.CreateRunningHook(originalMethod);
@@ -50,6 +58,7 @@ public static class Hook
 
 public abstract class DetourHook
 {
+    public IntPtr Address { get; }
     public string DllName { get; }
     public string MethodName { get; }
 
@@ -57,6 +66,13 @@ public abstract class DetourHook
     {
         DllName = dllName;
         MethodName = methodName;
+    }
+
+    public DetourHook(IntPtr address)
+    {
+        DllName = "";
+        MethodName = "";
+        Address = address;
     }
 
     internal abstract RunningHook CreateRunningHook(GCHandle originalMethod);

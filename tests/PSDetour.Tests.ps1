@@ -21,6 +21,28 @@ Describe "Start|Stop-PSDetour" {
         $state.rpid | Should -Not -Be ([Runspace]::DefaultRunspace.Id)
     }
 
+    It "Hooks a method by address" {
+        $lib = [System.Runtime.InteropServices.NativeLibrary]::Load("Kernel32.dll")
+        $addr = [System.Runtime.InteropServices.NativeLibrary]::GetExport($lib, "Sleep")
+        $state = @{}
+        Start-PSDetour -Hook @(
+            New-PSDetourHook -Address $addr -Action {
+                param([int]$Milliseconds)
+
+                # By referencing $using: it will run in a new runspace
+                ($using:state)['args'] = $Milliseconds
+                ($using:state)['rpid'] = [Runspace]::DefaultRunspace.Id
+
+                $this.Invoke($Milliseconds)
+            }
+        )
+        [PSDetourTest.Native]::Sleep(5)
+        Stop-PSDetour
+
+        $state.args | Should -Be 5
+        $state.rpid | Should -Not -Be ([Runspace]::DefaultRunspace.Id)
+    }
+
     It "Hooks method in same runspace if no using vars are present" {
         $state = @{}
         Start-PSDetour -Hook @(
