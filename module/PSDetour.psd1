@@ -14,7 +14,7 @@
     RootModule        = 'PSDetour.psm1'
 
     # Version number of this module.
-    ModuleVersion     = '0.2.0'
+    ModuleVersion     = '0.3.0'
 
     # Supported PSEditions
     # CompatiblePSEditions = @()
@@ -73,6 +73,7 @@
         'New-PSDetourSession'
         'Start-PSDetour'
         'Stop-PSDetour'
+        'Trace-PSDetourProcess'
     )
 
     # Variables to export from this module

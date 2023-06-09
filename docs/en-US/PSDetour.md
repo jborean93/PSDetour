@@ -23,3 +23,6 @@ Starts a detour session.
 ### [Stop-PSDetour](Stop-PSDetour.md)
 Stops a PSDetour session and removes all active hooks.
 
+### [Trace-PSDetourProcess](Trace-PSDetourProcess.md)
+Starts a PSDetour hook in either the current process or specified process and provides hook helpers for getting data back.
+
