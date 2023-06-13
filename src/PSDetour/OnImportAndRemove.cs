@@ -12,6 +12,13 @@ internal static class GlobalState
 {
     internal static SafeLoadedLibrary? _nativePSDetour = null;
 
+    public static string ModulePath = Path.GetFullPath(Path.Combine(
+        typeof(GlobalState).Assembly.Location,
+        "..",
+        "..",
+        "..",
+        "PSDetour.psd1"));
+
     public static string NativePath { get; } = Path.GetFullPath(Path.Combine(
         Path.GetDirectoryName(typeof(GlobalState).Assembly.Location) ?? "",
         "..",
@@ -24,7 +31,7 @@ internal static class GlobalState
 
     public static Dictionary<string, SafeLoadedLibrary> LoadedLibraries { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public static IntPtr GetProcAddress(string library, string method)
+    public static IntPtr GetModuleHandle(string library)
     {
         IntPtr modHandle;
         try
@@ -41,6 +48,12 @@ internal static class GlobalState
             modHandle = LoadedLibraries[library].DangerousGetHandle();
         }
 
+        return modHandle;
+    }
+
+    public static IntPtr GetProcAddress(string library, string method)
+    {
+        IntPtr modHandle = GetModuleHandle(library);
         return Kernel32.GetProcAddress(modHandle, method);
     }
 

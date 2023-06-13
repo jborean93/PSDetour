@@ -1,6 +1,7 @@
 using PSDetour.Native;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace PSDetour;
@@ -19,12 +20,22 @@ public static class Hook
         using var _ = Detour.DetourTransactionBegin();
         Detour.DetourUpdateThread(Kernel32.GetCurrentThread());
 
+        Dictionary<string, Dictionary<string, InvokeContext>> detouredContexts = new();
+
         foreach (DetourHook hook in hooks)
         {
             IntPtr originalMethodPtr;
             if (hook.Address != IntPtr.Zero)
             {
-                originalMethodPtr = hook.Address;
+                if (hook.AddressIsOffset)
+                {
+                    IntPtr dllHandle = GlobalState.GetModuleHandle(hook.DllName);
+                    originalMethodPtr = IntPtr.Add(dllHandle, hook.Address.ToInt32());
+                }
+                else
+                {
+                    originalMethodPtr = hook.Address;
+                }
             }
             else
             {
@@ -33,7 +44,18 @@ public static class Hook
 
             GCHandle originalMethod = GCHandle.Alloc(originalMethodPtr, GCHandleType.Pinned);
 
-            RunningHook runningHook = hook.CreateRunningHook(originalMethod);
+            RunningHook runningHook = hook.CreateRunningHook(originalMethod, detouredContexts);
+
+            string extensionLessDllName = Path.GetFileNameWithoutExtension(hook.DllName);
+            Dictionary<string, InvokeContext> moduleContexts;
+            if (!detouredContexts.TryGetValue(extensionLessDllName, out moduleContexts!))
+            {
+                moduleContexts = new();
+                detouredContexts[extensionLessDllName] = moduleContexts;
+            }
+
+            moduleContexts[hook.MethodName] = runningHook.InvokeContext;
+
             runningHook.Attach();
             RunningHooks.Add(runningHook);
         }
@@ -51,9 +73,6 @@ public static class Hook
 
         RunningHooks.Clear();
     }
-
-    [DllImport("Kernel32.dll")]
-    public static extern int GetCurrentProcessId();
 }
 
 public abstract class DetourHook
@@ -61,21 +80,35 @@ public abstract class DetourHook
     public IntPtr Address { get; }
     public string DllName { get; }
     public string MethodName { get; }
+    public bool AddressIsOffset { get; }
 
-    public DetourHook(string dllName, string methodName)
+    internal DetourHook(string dllName, string methodName, IntPtr address, bool addressIsOffset)
     {
         DllName = dllName;
         MethodName = methodName;
-    }
-
-    public DetourHook(IntPtr address)
-    {
-        DllName = "";
-        MethodName = "";
         Address = address;
+        AddressIsOffset = addressIsOffset;
     }
 
-    internal abstract RunningHook CreateRunningHook(GCHandle originalMethod);
+    internal abstract RunningHook CreateRunningHook(GCHandle originalMethod,
+        Dictionary<string, Dictionary<string, InvokeContext>> detouredContexts);
+}
+
+public class InvokeContext
+{
+    internal GCHandle OriginalMethod { get; }
+
+    public object? State { get; }
+
+    public Dictionary<string, Dictionary<string, InvokeContext>> DetouredModules { get; }
+
+    internal InvokeContext(object? state, Dictionary<string, Dictionary<string, InvokeContext>> detouredModules,
+        GCHandle originalMethod)
+    {
+        State = state;
+        DetouredModules = detouredModules;
+        OriginalMethod = originalMethod;
+    }
 }
 
 internal sealed class RunningHook : IDisposable
@@ -93,8 +126,8 @@ internal sealed class RunningHook : IDisposable
     public Delegate DetourDelegate { get; }
 
     /// <summary>
-    /// Contains the dynamic context object set as the $this variable during
-    /// the hook run. This is also generated dynamically.
+    /// Contains the dynamic context object. The structure of this object
+    /// depends on implementing class.
     /// </summary>
     public InvokeContext InvokeContext { get; }
 

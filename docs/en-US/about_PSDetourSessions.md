@@ -54,3 +54,54 @@ It can also be used interactively with `Enter-PSSession` which gives the caller 
 
 Once the session is no longer needed, use `Remove-PSSession` to close the connection.
 Remember that once a process has been tainted with PSDetour it will still continue to run the listener in the background until the process ends.
+
+Another option is to use `Trace-PSDetourProcess` to create a session in another process with a special state helper with the hooks.
+This special state object can be used to more easily send data back to the calling pipeline and provide more host interaction which might not be present when tracing other processes.
+The following code can be used to trace another process
+
+```powershell
+$hooks = New-PSDetourHook -DllName Kernel32 -MethodName GetCurrentProcessId -Action {
+    [OutputType([int])]
+    param ()
+
+    $this.State.WriteObject("object")
+
+    $this.Invoke()
+}
+
+# Will block until the process has ended or the hook has called StopTrace.
+Trace-PSDetourProcess -ProcessId $otherProc -Hooks $hooks
+```
+
+To stop a trace, press `ctrl+c`, or ensure one of your hooks sends the `StopTrace` signal.
+The `State` object set by `Trace-PSDetourProcess` has the following methods:
+
+* `GetFunction(string function)`
+    * Gets the function scriptblock of the function name specified
+    * These functions are populated by the `-FunctionsToDefine` parameter
+* `WriteDebug(string text)`
+    * Writes a debug record
+* `WriteError(ErrorRecord errorRecord)`
+    * Writes an error record
+* `WriteInformation(InformationRecord informationRecord)`
+    * Writes an information record
+* `WriteObject(object sendToPipeline)`
+    * Writes an object to the output pipeline with a depth of 1
+* `WriteObject(object sendToPipeline, int depth)`
+    * Writes an object to the output pipeline with a custom depth level
+* `WriteProgress(ProgressRecord progressRecord)`
+    * Writes a progress record
+* `WriteVerbose(string text)`
+    * Writes a verbose record
+* `WriteWarning(sting text)`
+    * Writes a warning record
+* `WriteLine()`
+    * Writes an empty line to the PSHost, i.e. `$host.UI.WriteLine()`
+* `WriteLine(string line, params string[] arg)`
+    * Writes a line with optional format string args to the PSHost, i.e. `$host.UI.WriteLine('line')`
+* `ReadLine()`
+    * Reads a line from the PSHost, i.e. `$host.UI.ReadLine()`
+* `ReadLine(string? prompt)`
+    * Reads a line from the PSHost with a custom prompt
+* `StopTrace()`
+    * Stops the current trace to unblock the caller

@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -54,14 +53,15 @@ internal class ScriptBlockDelegate
     /// <param name="originalMethod">The pointer to the non-detoured method.</param>
     /// <returns>The context object.</returns>
     internal InvokeContext CreateInvokeContext(ScriptBlock action, PSHost? host, Dictionary<string, object> usingVars,
-        object? state, GCHandle originalMethod)
+        object? state, Dictionary<string, Dictionary<string, InvokeContext>> detouredState, GCHandle originalMethod)
     {
-        return (InvokeContext)Activator.CreateInstance(ContextType, new object?[]
+        return (ScriptBlockInvokeContext)Activator.CreateInstance(ContextType, new object?[]
         {
             action,
             host,
             usingVars,
             state,
+            detouredState,
             originalMethod
         })!;
     }
@@ -119,13 +119,14 @@ internal class ScriptBlockDelegate
         TypeBuilder invokeContextBuilder = ReflectionInfo.Module.DefineType(
             $"{typeName}Invoke",
             System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Class,
-            typeof(InvokeContext));
+            typeof(ScriptBlockInvokeContext));
 
         ConstructorBuilder invokeContextCtor = invokeContextBuilder.DefineConstructor(
             System.Reflection.MethodAttributes.Public,
             CallingConventions.Standard,
             new[] { typeof(ScriptBlock), typeof(PSHost), typeof(Dictionary<string, object>),
-                typeof(object), typeof(GCHandle) });
+                typeof(object), typeof(Dictionary<string, Dictionary<string, InvokeContext>>),
+                typeof(GCHandle) });
         ILGenerator invokeContextCtorIL = invokeContextCtor.GetILGenerator();
         invokeContextCtorIL.Emit(OpCodes.Ldarg, 0);
         invokeContextCtorIL.Emit(OpCodes.Ldarg, 1);
@@ -133,11 +134,15 @@ internal class ScriptBlockDelegate
         invokeContextCtorIL.Emit(OpCodes.Ldarg, 3);
         invokeContextCtorIL.Emit(OpCodes.Ldarg, 4);
         invokeContextCtorIL.Emit(OpCodes.Ldarg, 5);
-        invokeContextCtorIL.Emit(OpCodes.Call, ReflectionInfo.InvokeContextCtor);
+        invokeContextCtorIL.Emit(OpCodes.Ldarg, 6);
+        invokeContextCtorIL.Emit(OpCodes.Call, ReflectionInfo.SbkInvokeContextCtor);
         invokeContextCtorIL.Emit(OpCodes.Ret);
 
+        MethodInfo invokeDelegate = delegateType.GetMethod("Invoke")!;
         CreateThisContextInvokeMethod(invokeContextBuilder, returnType, parameters, delegateType,
-            delegateType.GetMethod("Invoke")!);
+            invokeDelegate, false);
+        // CreateThisContextInvokeMethod(invokeContextBuilder, returnType, parameters, delegateType,
+        //     invokeDelegate, true, methodName);
 
         // If any of the parameters are ByRef types then a second delegate that
         // accepts the Ref<T> overload should be created. This allows the
@@ -154,7 +159,7 @@ internal class ScriptBlockDelegate
                 .Select(p => p.CreateDetourRefInformation())
                 .ToArray();
             CreateThisContextInvokeMethod(invokeContextBuilder, returnType, detourParameters, delegatePtrType,
-                delegatePtrType.GetMethod("Invoke")!);
+                delegatePtrType.GetMethod("Invoke")!, false);
         }
 
         Type thisContextType = invokeContextBuilder.CreateType()!;
@@ -175,7 +180,7 @@ internal class ScriptBlockDelegate
 
         FieldBuilder invokeContextField = tb.DefineField(
             "InvokeContext",
-            typeof(InvokeContext),
+            typeof(ScriptBlockInvokeContext),
             FieldAttributes.Private | FieldAttributes.Static);
 
         MethodBuilder mb = tb.DefineMethod(
@@ -284,12 +289,12 @@ internal class ScriptBlockDelegate
 
         if (varResult != null)
         {
-            il.Emit(OpCodes.Call, ReflectionInfo.WrapInvokeFunc.MakeGenericMethod(returnType.Type));
+            il.Emit(OpCodes.Call, ReflectionInfo.SbkWrapInvokeFunc.MakeGenericMethod(returnType.Type));
             il.Emit(OpCodes.Stloc_S, varResult);
         }
         else
         {
-            il.Emit(OpCodes.Call, ReflectionInfo.WrapInvokeVoidFunc);
+            il.Emit(OpCodes.Call, ReflectionInfo.SbkWrapInvokeVoidFunc);
         }
 
         // Need to unpin the fixed vars by setting them to 0
@@ -349,23 +354,37 @@ internal class ScriptBlockDelegate
     }
 
     private static MethodBuilder CreateThisContextInvokeMethod(TypeBuilder classType, TypeInformation returnType,
-        TypeInformation[] parameters, Type delegateType, MethodInfo delegateMethod)
+        TypeInformation[] parameters, Type delegateType, MethodInfo delegateMethod, bool forPSCodeMethod,
+        string? methodName = null)
     {
+        System.Reflection.MethodAttributes methodAttr = System.Reflection.MethodAttributes.Public;
+        TypeInformation[] methodParameters = parameters;
+        OpCode getOrignalMethodCallOpCode = OpCodes.Call;
+
+        if (forPSCodeMethod)
+        {
+            methodAttr |= System.Reflection.MethodAttributes.Static;
+            methodParameters = new TypeInformation[] {
+                new(typeof(PSObject), name: "this")
+            }.Concat(parameters).ToArray();
+            getOrignalMethodCallOpCode = OpCodes.Callvirt;
+        }
+
         MethodBuilder mb = classType.DefineMethod(
-            "Invoke",
-            System.Reflection.MethodAttributes.Public,
+            methodName ?? "Invoke",
+            methodAttr,
             CallingConventions.Standard,
             returnType.Type,
-            parameters.Select(p => p.Type).ToArray());
+            methodParameters.Select(p => p.Type).ToArray());
 
         if (returnType.MarshalAs != null)
         {
             CreateParameter(mb, 0, returnType);
         }
 
-        for (int i = 0; i < parameters.Length; i++)
+        for (int i = 0; i < methodParameters.Length; i++)
         {
-            CreateParameter(mb, i + 1, parameters[i]);
+            CreateParameter(mb, i + 1, methodParameters[i]);
         }
 
         ILGenerator il = mb.GetILGenerator();
@@ -377,7 +396,7 @@ internal class ScriptBlockDelegate
         }
 
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(OpCodes.Call, ReflectionInfo.GetOriginalMethodFunc);
+        il.Emit(getOrignalMethodCallOpCode, ReflectionInfo.GetOriginalMethodFunc);
         il.Emit(OpCodes.Stloc, originalMethodVar);
         il.Emit(OpCodes.Ldloca, originalMethodVar);
         il.Emit(OpCodes.Call, ReflectionInfo.AddrOfPinnedObjFunc);
@@ -386,9 +405,11 @@ internal class ScriptBlockDelegate
         for (int i = 0; i < parameters.Length; i++)
         {
             il.Emit(OpCodes.Ldarg, i + 1);
-            if (parameters[i].Type.IsGenericType && parameters[i].Type.GetGenericTypeDefinition() == typeof(Ref<>))
+            TypeInformation paramInfo = parameters[i];
+
+            if (paramInfo.Type.IsGenericType && paramInfo.Type.GetGenericTypeDefinition() == typeof(Ref<>))
             {
-                FieldInfo ptrField = parameters[i].Type.GetField("_ptr", BindingFlags.Instance | BindingFlags.NonPublic)!;
+                FieldInfo ptrField = paramInfo.Type.GetField("_ptr", BindingFlags.Instance | BindingFlags.NonPublic)!;
                 il.Emit(OpCodes.Ldfld, ptrField);
             }
         }
@@ -399,7 +420,7 @@ internal class ScriptBlockDelegate
             il.Emit(OpCodes.Stloc, retVar);
         }
 
-        il.Emit(OpCodes.Call, ReflectionInfo.GetLastErrorFunc);
+        il.Emit(OpCodes.Call, ReflectionInfo.SbkGetLastErrorFunc);
         il.Emit(OpCodes.Call, ReflectionInfo.SetLastPInvokeErrorFunc);
 
         if (retVar != null)
@@ -441,34 +462,31 @@ internal class ScriptBlockDelegate
     }
 }
 
-public class InvokeContext
+public class ScriptBlockInvokeContext: InvokeContext
 {
     private static ThreadLocal<bool> ThreadData = new(() => false);
 
     internal ScriptBlock Action { get; }
     internal PSHost? Host { get; }
     internal Dictionary<string, object> UsingVariables { get; }
-    internal GCHandle OriginalMethod { get; }
 
-    public object? State { get; }
-
-    internal InvokeContext(ScriptBlock action, PSHost? host, Dictionary<string, object> usingVariables,
-        object? state, GCHandle originalMethod)
+    internal ScriptBlockInvokeContext(ScriptBlock action, PSHost? host, Dictionary<string, object> usingVariables,
+        object? state, Dictionary<string, Dictionary<string, InvokeContext>> detouredModules,
+        GCHandle originalMethod)
+        : base(state, detouredModules, originalMethod)
     {
         Action = action;
         Host = host;
         UsingVariables = usingVariables;
-        State = state;
-        OriginalMethod = originalMethod;
     }
 
     // The Invoke method is generated dynamically on the subclasses that inherit this
-    // public T Invoke(...)
+    // public T Invoke(...);
 
     [DllImport("Kernel32.dll")]
     internal static extern int GetLastError();
 
-    internal static void WrapInvokeVoid(InvokeContext invokeContext, object[] args)
+    internal static void WrapInvokeVoid(ScriptBlockInvokeContext invokeContext, object[] args)
     {
         MethodInfo invokeMethod = invokeContext.GetType().GetMethod("Invoke",
             args.Select(a => a.GetType()).ToArray())!;
@@ -483,7 +501,7 @@ public class InvokeContext
         }
     }
 
-    internal static T? WrapInvoke<T>(InvokeContext invokeContext, object[] args)
+    internal static T? WrapInvoke<T>(ScriptBlockInvokeContext invokeContext, object[] args)
     {
         MethodInfo invokeMethod = invokeContext.GetType().GetMethod("Invoke",
             args.Select(a => a.GetType()).ToArray())!;
@@ -505,7 +523,7 @@ public class InvokeContext
         return default;
     }
 
-    internal static Collection<PSObject> InvokeInRunspace(InvokeContext invokeContext, object[] args)
+    internal static Collection<PSObject> InvokeInRunspace(ScriptBlockInvokeContext invokeContext, object[] args)
     {
         try
         {
@@ -598,17 +616,23 @@ public sealed class ScriptBlockHook : DetourHook
     public ScriptBlock Action { get; }
 
     public ScriptBlockHook(string dllName, string methodName, ScriptBlock action)
-        : base(dllName, methodName)
+        : this(dllName, methodName, action, IntPtr.Zero, false)
+    { }
+
+    public ScriptBlockHook(string dllName, string methodName, ScriptBlock action, IntPtr address,
+        bool addressIsOffset) : base(dllName, methodName, address, addressIsOffset)
     {
         Action = action;
         _scriptAst = (ScriptBlockAst)action.Ast;
     }
 
-    public ScriptBlockHook(IntPtr address, ScriptBlock action)
-        : base(address)
+    /// <summary>Set context info on the hook.</summary>
+    /// <param name="host">The PSHost to set.</param>
+    /// <param name="state">Var to set on the $this.State var.</param>
+    public void SetHostContext(PSHost? host, object? state = null)
     {
-        Action = action;
-        _scriptAst = (ScriptBlockAst)action.Ast;
+        _host = host;
+        _state = state;
     }
 
     /// <summary>Set context info on the hook.</summary>
@@ -630,7 +654,8 @@ public sealed class ScriptBlockHook : DetourHook
         });
     }
 
-    internal override RunningHook CreateRunningHook(GCHandle originalMethod)
+    internal override RunningHook CreateRunningHook(GCHandle originalMethod,
+        Dictionary<string, Dictionary<string, InvokeContext>> detouredContexts)
     {
         ScriptBlockDelegate sbkDelegate = ScriptBlockDelegate.Create(
             DllName,
@@ -638,7 +663,7 @@ public sealed class ScriptBlockHook : DetourHook
             GetReturnType(),
             GetParameterTypes());
         InvokeContext invokeContext = sbkDelegate.CreateInvokeContext(Action, _host, _usingVars ?? new(),
-            _state, originalMethod);
+            _state, detouredContexts, originalMethod);
         Delegate invokeDelegate = sbkDelegate.CreateNativeDelegate(invokeContext);
 
         return new(invokeDelegate, invokeContext, originalMethod);

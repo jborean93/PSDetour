@@ -26,7 +26,30 @@ Describe "Start|Stop-PSDetour" {
         $addr = [System.Runtime.InteropServices.NativeLibrary]::GetExport($lib, "Sleep")
         $state = @{}
         Start-PSDetour -Hook @(
-            New-PSDetourHook -Address $addr -Action {
+            New-PSDetourHook -DllName Kernel32 -MethodName Sleep -Address $addr -Action {
+                param([int]$Milliseconds)
+
+                # By referencing $using: it will run in a new runspace
+                ($using:state)['args'] = $Milliseconds
+                ($using:state)['rpid'] = [Runspace]::DefaultRunspace.Id
+
+                $this.Invoke($Milliseconds)
+            }
+        )
+        [PSDetourTest.Native]::Sleep(5)
+        Stop-PSDetour
+
+        $state.args | Should -Be 5
+        $state.rpid | Should -Not -Be ([Runspace]::DefaultRunspace.Id)
+    }
+
+    It "Hooks a method by address offset" {
+        $lib = [System.Runtime.InteropServices.NativeLibrary]::Load("Kernel32.dll")
+        $methodAddr = [System.Runtime.InteropServices.NativeLibrary]::GetExport($lib, "Sleep")
+        $addr = [IntPtr]($methodAddr.ToInt64() - $lib.ToInt64())
+        $state = @{}
+        Start-PSDetour -Hook @(
+            New-PSDetourHook -DllName Kernel32 -MethodName Sleep -Address $addr -AddressIsOffset -Action {
                 param([int]$Milliseconds)
 
                 # By referencing $using: it will run in a new runspace
@@ -217,5 +240,58 @@ Describe "Start|Stop-PSDetour" {
         $state.ref | Should -Be $token
         $state.res | Should -BeTrue
         $actual | Should -BeFalse
+    }
+
+    It "Hooks a method that references another detoured method" {
+        $state = @{
+            OpenProcess = $false
+            OpenProcessToken = $false
+            OpenRes = $false
+        }
+
+        Start-PSDetour -State $state -Hook @(
+            New-PSDetourHook -DllName Advapi32.dll -MethodName OpenProcessToken -Action {
+                [OutputType([bool])]
+                param (
+                    [IntPtr]$Process,
+                    [int]$Access,
+                    [PSDetour.Ref[IntPtr]]$Token
+                )
+
+                $this.State.OpenProcessToken = $true
+                $this.Invoke($Process, $Access, $Token)
+            }
+
+            New-PSDetourHook -DllName Kernel32.dll -MethodName OpenProcess -Action {
+                [OutputType([IntPtr])]
+                param (
+                    [int]$DesiredAccess,
+                    [bool]$InheritHandle,
+                    [int]$ProcessId
+                )
+
+                $this.State.OpenProcess = $true
+                $processHandle = $this.Invoke($DesiredAccess, $InheritHandle, $ProcessId)
+
+                $accessToken = [IntPtr]::Zero
+                $this.State.OpenRes = $this.DetouredModules.Advapi32.OpenProcessToken.Invoke(
+                    $processHandle,
+                    [System.Security.Principal.TokenAccessLevels]::Query,
+                    [ref]$accessToken)
+                if ($this.State.OpenRes) {
+                    [PSDetourTest.Native]::CloseHandle($accessToken)
+                }
+
+                $processHandle
+            }
+        )
+
+        $actual = [PSDetourTest.Native]::OpenProcess(0x0400, $false, $pid)
+        Stop-PSDetour
+        [PSDetourTest.Native]::CloseHandle($actual)
+
+        $state.OpenProcess | Should -BeTrue
+        $state.OpenProcessToken | Should -BeFalse
+        $state.OpenRes | Should -BeTrue
     }
 }

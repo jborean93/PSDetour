@@ -13,14 +13,9 @@ Create a PSDetour hook from a scriptblock.
 
 ## SYNTAX
 
-### Name (Default)
 ```
-New-PSDetourHook [-DllName] <String> [-MethodName] <String> [-Action] <ScriptBlock> [<CommonParameters>]
-```
-
-### Address
-```
-New-PSDetourHook -Address <IntPtr> [-Action] <ScriptBlock> [<CommonParameters>]
+New-PSDetourHook [-DllName] <String> [-MethodName] <String> [-Action] <ScriptBlock> [-Address <IntPtr>]
+ [-AddressIsOffset] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -113,13 +108,31 @@ Accept wildcard characters: False
 ### -Address
 Hook the method at the address specified.
 This can be used to hook methods that are not publicly exported by name.
+The `-DllName` and `-MethodName` must still be set to provide enough metadata for the reflected method to be generated.
+By default the `Address` is the offset in the current process but `-AddressIsOffset` can be used to specify the address is an offset from the loaded `DllName` address of the process.
 
 ```yaml
 Type: IntPtr
-Parameter Sets: Address
+Parameter Sets: (All)
 Aliases:
 
-Required: True
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
+### -AddressIsOffset
+Will automatically calculated the actual method address from the loaded Dll module specified by `-DllName` based on the `-Address` value.
+For example if `Kernel32.dll` is loaded at the address `0x0000F000` and the specified address is `-Address 0x0001`, the final method address will be `0x0000F001`.
+
+```yaml
+Type: SwitchParameter
+Parameter Sets: (All)
+Aliases:
+
+Required: False
 Position: Named
 Default value: None
 Accept pipeline input: False
@@ -132,7 +145,7 @@ The DLL name or path where the C function to hook is defined.
 
 ```yaml
 Type: String
-Parameter Sets: Name
+Parameter Sets: (All)
 Aliases:
 
 Required: True
@@ -148,7 +161,7 @@ The C function name/symbol to hook.
 
 ```yaml
 Type: String
-Parameter Sets: Name
+Parameter Sets: (All)
 Aliases:
 
 Required: True

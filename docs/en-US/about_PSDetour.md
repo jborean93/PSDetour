@@ -32,7 +32,7 @@ The key components of a scriptblock that is used a hook are:
 
 * `[OutputType]` - to denote the return type of the function to hook
 * `param(...)` - all the arguments/parameters and their types of the function to hook
-* `$this` - a special variable that contains metadata about the hook, currently only the `Invoke` method and `State` property is implemented.
+* `$this` - a special variable that contains metadata about the hook, currently only the `Invoke` method, `State` property, and `DetouredModules` property are implemented.
 * `$using:...` - injects the variable named by `...` into the running action hook
 
 An example of a hook that just logs the input parameters and return values would look like:
@@ -104,4 +104,58 @@ Stop-PSDetour
 
 # The foo key will be modified if the hook was run
 $state
+```
+
+The `DetouredModules` property is a dictionary that contains the invoke context for all hooks currently loaded.
+This can be used so the hook can call another method that is currently hooked in the session.
+This call won't go through the hook but call the underlying method method that has been detoured.
+The `DetouredModules` dictionary contains the keys of all the `-DllName` dlls that have been detoured (without the extension).
+Each value of the dll keys is another dictionary where the string is the `-MethodName` names that have been detoured.
+The value of each method is the `InvokeContext` object with the `Invoke(...)` method that can be called.
+Here is an example that hooks both `OpenProcess` and `OpenProcessToken` where the `OpenProcess` hook calls the `OpenProcessToken` function
+
+```powershell
+$hooks = @(
+    New-PSDetourHook -DllName Kernel32.dll -MethodName OpenProcess -Action {
+        [OutputType([IntPtr])]
+        param (
+            [int]$Access,
+            [bool]$InheritHandle,
+            [int]$ProcessId
+        )
+
+        $processHandle = $this.Invoke($Access, $InheritHandle, $ProcessId)
+
+        # A way to check if the method has been detoured
+        if ($this.DetouredModules.Advapi32.ContainsKey('OpenProcessToken')) {
+            $accessToken = [IntPtr]::Zero
+            $openRes = $this.DetouredModules.Advapi32.OpenProcessToken.Invoke(
+                $processHandle,
+                [System.Security.Principal.TokenAccessLevels]::Query,
+                [ref]$accessToken)
+            if ($openRes) {
+                Write-Host "Opened process $processId access token $accessToken"
+            }
+        }
+
+        $processHandle
+    }
+
+    New-PSDetourHook -DllName Advapi32.dll -MethodName OpenProcessToken -Action {
+        [OutputType([bool])]
+        param (
+            [IntPtr]$ProcessHandle,
+            [int]$DesiredAccess,
+            [PSDetour.Ref[IntPtr]]$TokenHandle
+        )
+
+        $this.Invoke($ProcessHandle, $DesiredAccess, $TokenHandle)
+    }
+)
+
+$hooks | Start-PSDetour
+
+...
+
+Stop-PSDetour
 ```
