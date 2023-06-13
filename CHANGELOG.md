@@ -1,6 +1,6 @@
 # Changelog for PSDetour
 
-## v0.3.0 - TBD
+## v0.3.0 - 2023-06-13
 
 * Added `Trace-PSDetourProcess` to make it easier to start hooks for auditing in other processes
   * This provides a common mechanism that can be used to output data from a remote hook as well as wait for input data in the hook itself
