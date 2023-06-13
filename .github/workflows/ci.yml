@@ -124,7 +124,7 @@ jobs:
     needs:
     - build
     - test
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
     - name: Restore Built PowerShell Module
       uses: actions/download-artifact@v3

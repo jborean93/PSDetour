@@ -113,18 +113,19 @@ task Sign {
     [byte[]]$certBytes = [System.Convert]::FromBase64String($env:PSMODULE_SIGNING_CERT)
     $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certBytes, $certPassword)
     $signParams = @{
-        Certificate     = $cert
-        TimestampServer = 'http://timestamp.digicert.com'
-        HashAlgorithm   = 'SHA256'
+        Certificate = $cert
+        TimeStampServer = 'http://timestamp.digicert.com'
+        HashAlgorithm = 'SHA256'
     }
 
     Get-ChildItem -LiteralPath $ReleasePath -Recurse -ErrorAction SilentlyContinue |
-        Where-Object Extension -In ".ps1", ".psm1", ".psd1", ".ps1xml", ".dll" |
+        Where-Object {
+            $_.Extension -in ".ps1", ".psm1", ".psd1", ".ps1xml" -or (
+                $_.Extension -eq ".dll" -and $_.BaseName -like "$ModuleName*"
+            )
+        } |
         ForEach-Object -Process {
-            $result = Set-AuthenticodeSignature -LiteralPath $_.FullName @signParams
-            if ($result.Status -ne "Valid") {
-                throw "Failed to sign $($_.FullName) - Status: $($result.Status) Message: $($result.StatusMessage)"
-            }
+            Set-OpenAuthenticodeSignature -LiteralPath $_.FullName @signParams
         }
 }
 
