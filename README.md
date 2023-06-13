@@ -7,6 +7,7 @@
 
 Hook C APIs in PowerShell as well as run PowerShell in other local processes.
 See [about_PSDetour](docs/en-US/about_PSDetour.md) for more details.
+See [PSDetour-Hooks](https://github.com/jborean93/PSDetour-Hooks) for some hooks that can be used with [Trace-PSDetourProcess](docs/en-US/Trace-PSDetourProcess.md).
 
 ## Documentation
 
