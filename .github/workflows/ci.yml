@@ -37,8 +37,7 @@ jobs:
       run: ./build.ps1 -Configuration $env:BUILD_CONFIGURATION -Task Build
       if: ${{ env.BUILD_CONFIGURATION == 'Release' }}
       env:
-        PSMODULE_SIGNING_CERT: ${{ secrets.PSMODULE_SIGNING_CERT }}
-        PSMODULE_SIGNING_CERT_PASSWORD: ${{ secrets.PSMODULE_SIGNING_CERT_PASSWORD }}
+        AZURE_KEYVAULT_CREDENTIALS: ${{ secrets.AZURE_KEYVAULT_CREDENTIALS }}
 
     - name: Capture PowerShell Module
       uses: actions/upload-artifact@v3
