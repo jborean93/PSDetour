@@ -290,7 +290,7 @@ $state = [PSDetour.Commands.TraceState]::new($reader, $writer, $FunctionsToDefin
             {
                 ps = PowerShell.Create();
                 ps.Runspace = rs;
-                ps.AddScript("[PSDetour.Hook]::Stop()").Invoke();
+                ps.AddScript("[PSDetour.Hook]::Stop(); $state.Dispose()").Invoke();
             }
         }
     }
@@ -404,12 +404,13 @@ internal enum PipeMessageType
     ReadLine
 }
 
-public sealed class TraceState
+public sealed class TraceState : IDisposable
 {
     private Encoding _utf8 = new UTF8Encoding();
     private StreamReader _reader;
     private AnonymousPipeClientStream _writer;
     private Dictionary<string, ScriptBlock> _functions = new();
+    private SemaphoreSlim _lock = new(1);
 
     public TraceState(AnonymousPipeClientStream reader, AnonymousPipeClientStream writer, IDictionary? functions)
     {
@@ -506,8 +507,21 @@ public sealed class TraceState
         Span<byte> typeLength = stackalloc byte[8];
         BitConverter.TryWriteBytes(typeLength, (int)messageType);
         BitConverter.TryWriteBytes(typeLength[4..], rawData.Length);
-        _writer.Write(typeLength);
-        _writer.Write(rawData, 0, rawData.Length);
-        _writer.Flush();
+        _lock.Wait();
+        try
+        {
+            _writer.Write(typeLength);
+            _writer.Write(rawData, 0, rawData.Length);
+            _writer.Flush();
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    public void Dispose()
+    {
+        _lock?.Dispose();
     }
 }

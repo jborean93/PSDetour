@@ -1,5 +1,9 @@
 # Changelog for PSDetour
 
+## v0.3.1 - 2023-07-25
+
+* Added lock for `Trace-PSDetourProcess` output pipe to avoid multiple threads clobbering the serialized output
+
 ## v0.3.0 - 2023-06-13
 
 * Added `Trace-PSDetourProcess` to make it easier to start hooks for auditing in other processes
