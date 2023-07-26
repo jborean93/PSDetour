@@ -5,7 +5,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Management.Automation;
+using System.Management.Automation.Language;
 using System.Management.Automation.Runspaces;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -19,6 +21,7 @@ public sealed class TracePSDetourProcessCommand : PSCmdlet
 {
     private CancellationTokenSource? _cancelToken;
     private List<Dictionary<string, object>> _hooks = new();
+    private List<PSObject> _parsedFunctions = new();
 
     [Parameter(
         Mandatory = true,
@@ -37,15 +40,52 @@ public sealed class TracePSDetourProcessCommand : PSCmdlet
     [Alias("Functions")]
     public IDictionary? FunctionsToDefine { get; set; }
 
+    [Parameter]
+    [Alias("CSharp")]
+    public string[] CSharpToLoad { get; set; } = Array.Empty<string>();
+
+    protected override void BeginProcessing()
+    {
+        if (FunctionsToDefine == null)
+        {
+            return;
+        }
+
+        foreach (DictionaryEntry entry in FunctionsToDefine)
+        {
+            string functionName = entry.Key.ToString() ?? "";
+            string value = entry.Value?.ToString() ?? "";
+            string? path = null;
+            int line = 0;
+            if (entry.Value is ScriptBlock sbk)
+            {
+                path = sbk.File;
+                line = sbk.StartPosition.StartLine;
+            }
+
+            PSObject functionInfo = new();
+            functionInfo.Properties.Add(new PSNoteProperty("Name", functionName));
+            functionInfo.Properties.Add(new PSNoteProperty("Value", value));
+            functionInfo.Properties.Add(new PSNoteProperty("Path", path));
+            functionInfo.Properties.Add(new PSNoteProperty("Line", line));
+            _parsedFunctions.Add(functionInfo);
+        }
+    }
+
     protected override void ProcessRecord()
     {
         foreach (DetourHook h in Hook)
         {
             if (h is ScriptBlockHook sbkHook)
             {
+                ScriptBlockAst actionAst = (ScriptBlockAst)sbkHook.Action.Ast;
                 _hooks.Add(new Dictionary<string, object>()
                 {
                     { "Action", sbkHook.Action.ToString() },
+                    { "ParamBlock", actionAst.ParamBlock?.ToString() ?? "" },
+                    { "ParamAttributes", actionAst.ParamBlock?.Attributes.Select(a => a.ToString())?.ToArray() ?? Array.Empty<string>() },
+                    { "ActionPath", sbkHook.Action.File },
+                    { "ActionLine", sbkHook.Action.StartPosition.StartLine },
                     { "Address", sbkHook.Address.ToInt64() },
                     { "AddressIsOffset", sbkHook.AddressIsOffset },
                     { "DllName", sbkHook.DllName },
@@ -82,19 +122,6 @@ public sealed class TracePSDetourProcessCommand : PSCmdlet
         SafeHandle targetWriter;
         if (ProcessId == null)
         {
-            // InitialSessionState iss = InitialSessionState.CreateDefault2();
-            // iss.ImportPSModule(new[] { GlobalState.ModulePath });
-            // rs = RunspaceFactory.CreateRunspace(Host, iss);
-            // // rs = RunspaceFactory.CreateRunspace(Host);
-            // rs.Open();
-
-            // using PowerShell ps = PowerShell.Create();
-            // ps.Runspace = rs;
-            // ps.AddCommand("Import-Module")
-            //     .AddParameter("Name", GlobalState.ModulePath)
-            //     .AddParameter("Global", true);
-            // ps.Invoke();
-
             targetProcess = currentProces;
             targetReader = writePipe.ClientSafePipeHandle;
             targetWriter = readPipe.ClientSafePipeHandle;
@@ -130,9 +157,6 @@ public sealed class TracePSDetourProcessCommand : PSCmdlet
                 true);
             readPipe.DisposeLocalCopyOfClientHandle();
         }
-
-        // WriteVerbose("test");
-        // WriteObject(5);
 
         using (targetProcess)
         using (rs)
@@ -182,11 +206,19 @@ param(
     $WritePipeId,
 
     [Parameter()]
-    [System.Collections.IDictionary]
-    $FunctionsToDefine
+    [PSObject[]]
+    $FunctionsToDefine,
+
+    [Parameter()]
+    [string[]]
+    $CSharpToLoad
 )
 
 $ErrorActionPreference = 'Stop'
+
+foreach ($cSharp in $CSharpToLoad) {
+    Add-Type -TypeDefinition $cSharp -CompilerOptions '/unsafe /nullable'
+}
 
 $reader = [System.IO.Pipes.AnonymousPipeClientStream]::new(
     [System.IO.Pipes.PipeDirection]::In,
@@ -204,10 +236,18 @@ $state = [PSDetour.Commands.TraceState]::new($reader, $writer, $FunctionsToDefin
     if ($h.Address) {
         $address = [IntPtr]$h.Address
     }
+    $hookSbk = $state.InternalInjectFunctions(
+        $h.DllName,
+        $h.MethodName,
+        $h.Action,
+        $h.ParamBlock,
+        $h.ParamAttributes,
+        $h.ActionPath,
+        $h.ActionLine)
     $newHook = [PSDetour.ScriptBlockHook]::new(
         $h.DllName,
         $h.MethodName,
-        [ScriptBlock]::Create($h.Action),
+        $hookSbk,
         $address,
         $h.AddressIsOffset
     )
@@ -222,7 +262,8 @@ $state = [PSDetour.Commands.TraceState]::new($reader, $writer, $FunctionsToDefin
             { "Hooks", _hooks },
             { "ReadPipeId", targetReader.DangerousGetHandle().ToInt64() },
             { "WritePipeId", targetWriter.DangerousGetHandle().ToInt64() },
-            { "FunctionsToDefine", FunctionsToDefine },
+            { "FunctionsToDefine", _parsedFunctions },
+            { "CSharpToLoad", CSharpToLoad }
         });
         try
         {
@@ -409,28 +450,59 @@ public sealed class TraceState : IDisposable
     private Encoding _utf8 = new UTF8Encoding();
     private StreamReader _reader;
     private AnonymousPipeClientStream _writer;
-    private Dictionary<string, ScriptBlock> _functions = new();
+    private List<Dictionary<string, object?>> _functions = new();
     private SemaphoreSlim _lock = new(1);
 
-    public TraceState(AnonymousPipeClientStream reader, AnonymousPipeClientStream writer, IDictionary? functions)
+    public TraceState(AnonymousPipeClientStream reader, AnonymousPipeClientStream writer, PSObject[]? functions)
     {
         _reader = new StreamReader(reader, _utf8);
         _writer = writer;
 
-        if (functions != null)
+        foreach (PSObject funcInfo in functions ?? Array.Empty<PSObject>())
         {
-            foreach (DictionaryEntry entry in functions)
-            {
-                string functionName = entry.Key.ToString() ?? "";
-                ScriptBlock functionDef = ScriptBlock.Create(entry.Value?.ToString() ?? "");
-                _functions[functionName] = functionDef;
-            }
+            string name = (string)funcInfo.Properties["Name"].Value;
+            string value = (string)funcInfo.Properties["Value"].Value;
+            string? path = (string?)funcInfo.Properties["Path"].Value;
+            int line = (int)funcInfo.Properties["Line"].Value;
+            _functions.Add(CreateFunctionDefinition(name, value, path, line));
         }
     }
 
-    public ScriptBlock GetFunction(string function)
+    // While public this is not for external use
+    public ScriptBlock InternalInjectFunctions(
+        string dllName,
+        string methodName,
+        string code,
+        string paramBlock,
+        string[] paramAttributes,
+        string? scriptPath,
+        int codeLine
+    )
     {
-        return _functions[function];
+        string hookMethodName = $"{dllName}!{methodName}";
+        Dictionary<string, object?> mainMethod = CreateFunctionDefinition(
+            hookMethodName,
+            code,
+            scriptPath,
+            codeLine
+        );
+
+        // We don't parse the code as that will trigger pwsh to load the
+        // defined types causing problems when running the hooks later.
+        // Instead just use the param block and attributes provided to build
+        // the new param block.
+        StringBuilder paramString = new();
+        foreach (string attr in paramAttributes)
+        {
+            paramString.AppendLine(attr);
+        }
+        paramString.AppendLine(paramBlock);
+
+        return AstHelper.CreateScriptBlockWithInjectedFunctions(
+            hookMethodName,
+            paramString.ToString(),
+            _functions.Union(new[] { mainMethod })
+        ).GetScriptBlock();
     }
 
     public void WriteDebug(string text)
@@ -498,6 +570,22 @@ public sealed class TraceState : IDisposable
     public void StopTrace()
     {
         WritePipe("", PipeMessageType.Stop);
+    }
+
+    private static Dictionary<string, object?> CreateFunctionDefinition(
+        string name,
+        string value,
+        string? path,
+        int line
+    )
+    {
+        return new()
+            {
+                { "Name", name },
+                { "Value", value },
+                { "Path", path },
+                { "Line", line > 0 ? line - 1 : line }
+            };
     }
 
     private void WritePipe(string data, PipeMessageType messageType)

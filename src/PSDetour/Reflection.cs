@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Management.Automation;
 using System.Management.Automation.Host;
+using System.Management.Automation.Language;
 using System.Management.Automation.Remoting;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -14,6 +15,7 @@ internal static class ReflectionInfo
 {
     private static ModuleBuilder? _builder = null;
     private static ConstructorInfo? _marshalAsCtor = null;
+    private static ConstructorInfo? _sbkAstCtor = null;
     private static ConstructorInfo? _sbkInvokeContextCtor = null;
     private static FieldInfo? _ipcNamedPipeServerEnabledField = null;
     private static MethodInfo? _addrOfPinnedObjFunc = null;
@@ -66,6 +68,26 @@ internal static class ReflectionInfo
             }
 
             return _marshalAsCtor;
+        }
+    }
+
+    public static ConstructorInfo SbkAstCtor
+    {
+        get
+        {
+            if (_sbkAstCtor == null)
+            {
+                Type paramMetaProviderType = typeof(FunctionDefinitionAst).Assembly.GetType(
+                    "System.Management.Automation.Language.IParameterMetadataProvider")!;
+                _sbkAstCtor = typeof(ScriptBlock).GetConstructor(
+                    BindingFlags.NonPublic | BindingFlags.Instance,
+                    new[] {
+                        paramMetaProviderType,
+                        typeof(bool)
+                    })!;
+            }
+
+            return _sbkAstCtor;
         }
     }
 

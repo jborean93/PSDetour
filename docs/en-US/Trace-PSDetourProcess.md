@@ -14,7 +14,7 @@ Starts a PSDetour hook in either the current process or specified process and pr
 
 ```
 Trace-PSDetourProcess [-Hook] <DetourHook[]> [-ProcessId <ProcessIntString>] [-FunctionsToDefine <IDictionary>]
- [<CommonParameters>]
+ [-CSharpToLoad <String[]>] [<CommonParameters>]
 ```
 
 ## DESCRIPTION
@@ -92,7 +92,6 @@ PS C:\> $hook = New-PSDetourHook -DllName Kernel32 -MethodName GetCurrentProcess
 ...     [OutputType([int])]
 ...     param()
 ...
-...     Set-Item -Path Function:My-Function -Value $this.State.GetFunction("My-Function")
 ...     $this.State.WriteObject((My-Function))
 ...
 ...     $this.Invoke()
@@ -100,14 +99,30 @@ PS C:\> $hook = New-PSDetourHook -DllName Kernel32 -MethodName GetCurrentProcess
 PS C:\> $hook | Trace-PSDetourProcess -FunctionsToDefine @{"My-Function" = ${function:My-Function}}
 ```
 
-Registers the function `My-Function` which can be redefined in the hook scope through `$this.State.GetFunction`.
-The function can then be called just like any other PowerShell function.
+Registers the function `My-Function` which will be redefined in the hook scope when run so can be run like normal.
 
 ## PARAMETERS
 
+### -CSharpToLoad
+C# code that is loaded into the process before the hooks are run.
+Use this to pre-load any C# code that needs to be compiled so that the hooks can access the classes in the definitions.
+As a C# assembly cannot be unloaded, the only way to update the C# code being used if changed is to restart the target process.
+
+```yaml
+Type: String[]
+Parameter Sets: (All)
+Aliases: CSharp
+
+Required: False
+Position: Named
+Default value: None
+Accept pipeline input: False
+Accept wildcard characters: False
+```
+
 ### -FunctionsToDefine
-Common functions to define that the `$this.State` will have access to in the hook.
-These function scriptblocks can be access through `$this.State.GetFunction("Function-Name").
+Common functions to define in the running hook.
+These functions will automatically be redefined in the traced session and can be invoked like normal.
 
 ```yaml
 Type: IDictionary

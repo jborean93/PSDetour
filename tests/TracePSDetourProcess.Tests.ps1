@@ -14,6 +14,8 @@ Describe "Trace-PSDetourProcess" {
         $null = $ps.AddScript({
             param($ModulePath, $Hook)
 
+            $ErrorActionPreference = 'Stop'
+
             Import-Module $ModulePath -ErrorAction Stop
 
             "started"
@@ -38,6 +40,9 @@ Describe "Trace-PSDetourProcess" {
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {
+                if ($task.IsCompleted) {
+                    $ps.EndInvoke($task)
+                }
                 throw "timeout waiting for trace output"
             }
             $actual = $outputStream[$dataAdded.SourceEventArgs[0].Index]
@@ -118,6 +123,9 @@ Describe "Trace-PSDetourProcess" {
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {
+                if ($task.IsCompleted) {
+                    $ps.EndInvoke($task)
+                }
                 throw "timeout waiting for trace output"
             }
             $actual = $outputStream[$dataAdded.SourceEventArgs[0].Index]
@@ -219,6 +227,8 @@ Describe "Trace-PSDetourProcess" {
             $null = $ps.AddScript({
                 param($ModulePath, $Hook, $Process)
 
+                $ErrorActionPreference = 'Stop'
+
                 Import-Module $ModulePath -ErrorAction Stop
 
                 "started"
@@ -247,6 +257,9 @@ Describe "Trace-PSDetourProcess" {
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {
+                if ($task.IsCompleted) {
+                    $ps.EndInvoke($task)
+                }
                 throw "timeout waiting for trace output"
             }
             $actual = $outputStream[$dataAdded.SourceEventArgs[0].Index]
@@ -275,6 +288,134 @@ Describe "Trace-PSDetourProcess" {
         }
 
         $actual | Should -Be 5
+    }
+
+    It "Traces other process with enum def" {
+        $proc = $waitEvent1 = $waitEvent2 = $null
+        $registeredEvent = $false
+        $eventName = [Guid]::NewGuid().Guid
+
+        try {
+            $waitEvent1 = [System.Threading.EventWaitHandle]::new(
+                $false,
+                [System.Threading.EventResetMode]::ManualReset,
+                "Global\$eventName-1")
+            $waitEvent2 = [System.Threading.EventWaitHandle]::new(
+                $false,
+                [System.Threading.EventResetMode]::ManualReset,
+                "Global\$eventName-2")
+
+            $procScript = {
+                $ErrorActionPreference = 'Stop'
+
+                $commonPath = 'REPLACE_COMMON_PATH'
+                .$commonPath
+
+                $eventName = 'REPLACE_EVENT_NAME'
+                $waitEvent1 = [System.Threading.EventWaitHandle]::OpenExisting("Global\$eventName-1")
+                $waitEvent2 = [System.Threading.EventWaitHandle]::OpenExisting("Global\$eventName-2")
+                try {
+                    $waitEvent1.Set()
+                    if (-not $waitEvent2.WaitOne(5000)) {
+                        throw "Timed out waiting to start"
+                    }
+                    [PSDetourTest.Native]::Sleep(0)
+                }
+                finally {
+                    $waitEvent1.Dispose()
+                    $waitEvent2.Dispose()
+                }
+
+                "Done"
+                Start-Sleep -Seconds 60
+            }.ToString() -replace 'REPLACE_EVENT_NAME', $eventName -replace 'REPLACE_COMMON_PATH', ([IO.Path]::Combine($PSScriptRoot, 'common.ps1'))
+            $encCommand = [System.Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($procScript))
+
+            $procParams = @{
+                FilePath = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+                ArgumentList = "-NoProfile -NonInteractive -EncodedCommand $encCommand"
+                PassThru = $true
+                WindowStyle = 'Hidden'
+            }
+            $proc = Start-Process @procParams
+
+            $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+                param([int]$Milliseconds)
+
+                enum MyEnum {
+                    Value1
+                }
+                $this.State.WriteObject([MyEnum]$Milliseconds)
+            }
+
+            $modulePath = Join-Path (Get-Module -Name PSDetour).ModuleBase 'PSDetour.psd1'
+
+            $ps = [PowerShell]::Create()
+            $null = $ps.AddScript({
+                param($ModulePath, $Hook, $Process)
+
+                $ErrorActionPreference = 'Stop'
+
+                Import-Module $ModulePath -ErrorAction Stop
+
+                "started"
+                $Hook | Trace-PSDetourProcess -ProcessId $Process
+            }).AddParameters(@{ModulePath = $modulePath; Hook = $hook; Process = $proc})
+
+            $inputStream = [System.Management.Automation.PSDataCollection[object]]::new()
+            $outputStream = [System.Management.Automation.PSDataCollection[object]]::new()
+            Register-ObjectEvent -InputObject $outputStream -EventName DataAdded -SourceIdentifier PSDetourAdded
+            $registeredEvent = $true
+            $psi = [System.Management.Automation.PSInvocationSettings]@{
+                Host = $host
+            }
+
+            if (-not $waitEvent1.WaitOne(5000)) {
+                throw "timed out waiting for child process to be ready"
+            }
+            $task = $ps.BeginInvoke($inputStream, $outputStream, $psi, $null, $null)
+
+            # Waits until started has been written
+            Wait-Event -SourceIdentifier PSDetourAdded | Remove-Event
+
+            # Add a second padding for the trace to actually start
+            Start-Sleep -Second 1
+            $waitEvent2.Set()
+
+            $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
+            if (-not $dataAdded) {
+                if ($task.IsCompleted) {
+                    $ps.EndInvoke($task)
+                }
+                throw "timeout waiting for trace output"
+            }
+            $actual = $outputStream[$dataAdded.SourceEventArgs[0].Index]
+
+            $ps.Stop()
+            try {
+                $ps.EndInvoke($task)
+            }
+            catch [System.Management.Automation.PipelineStoppedException] {}
+
+        }
+        finally {
+            if ($waitEvent1) {
+                $waitEvent1.Dispose()
+            }
+            if ($waitEvent2) {
+                $waitEvent2.Dispose()
+            }
+            if ($proc) {
+                $proc | Stop-Process -Force -ErrorAction SilentlyContinue
+            }
+            if ($registeredEvent) {
+                Remove-Event -SourceIdentifier PSDetourAdded -ErrorAction SilentlyContinue
+                Unregister-Event -SourceIdentifier PSDetourAdded
+            }
+        }
+
+        $actual | Should -Be 0
+        $actual.ToString() | Should -Be 'Value1'
     }
 
     It "Traces other process with outputs" {
@@ -392,6 +533,9 @@ Describe "Trace-PSDetourProcess" {
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {
+                if ($task.IsCompleted) {
+                    $ps.EndInvoke($task)
+                }
                 throw "timeout waiting for trace output"
             }
             $actual = $outputStream[$dataAdded.SourceEventArgs[0].Index]
@@ -502,6 +646,8 @@ Describe "Trace-PSDetourProcess" {
             $null = $ps.AddScript({
                 param($ModulePath, $Hook, $Process)
 
+                $ErrorActionPreference = 'Stop'
+
                 Import-Module $ModulePath -ErrorAction Stop
 
                 "started"
@@ -530,6 +676,9 @@ Describe "Trace-PSDetourProcess" {
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {
+                if ($task.IsCompleted) {
+                    $ps.EndInvoke($task)
+                }
                 throw "timeout waiting for trace output"
             }
             $actual = $outputStream[$dataAdded.SourceEventArgs[0].Index]
@@ -569,6 +718,8 @@ Describe "Trace-PSDetourProcess" {
         $null = $ps.AddScript({
             param($ModulePath, $Hook)
 
+            $ErrorActionPreference = 'Stop'
+
             Import-Module $ModulePath -ErrorAction Stop
 
             "started"
@@ -593,6 +744,9 @@ Describe "Trace-PSDetourProcess" {
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {
+                if ($task.IsCompleted) {
+                    $ps.EndInvoke($task)
+                }
                 throw "timeout waiting for trace output"
             }
             $actual = $outputStream[$dataAdded.SourceEventArgs[0].Index]
@@ -611,7 +765,6 @@ Describe "Trace-PSDetourProcess" {
         $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
             param([int]$Milliseconds)
 
-            Set-Item -Path Function:Test-Function -Value $this.State.GetFunction("Test-Function")
             $this.State.WriteObject((Test-Function))
         }
 
@@ -620,6 +773,8 @@ Describe "Trace-PSDetourProcess" {
         $ps = [PowerShell]::Create()
         $null = $ps.AddScript({
             param($ModulePath, $Hook)
+
+            $ErrorActionPreference = 'Stop'
 
             Import-Module $ModulePath -ErrorAction Stop
 
@@ -647,6 +802,9 @@ Describe "Trace-PSDetourProcess" {
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {
+                if ($task.IsCompleted) {
+                    $ps.EndInvoke($task)
+                }
                 throw "timeout waiting for trace output"
             }
             $actual = $outputStream[$dataAdded.SourceEventArgs[0].Index]
@@ -663,6 +821,76 @@ Describe "Trace-PSDetourProcess" {
         }
 
         $actual | Should -Be 1
+    }
+
+    It "Shares CSharp def" {
+        $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+            param([int]$Milliseconds)
+
+            $this.State.WriteObject([Namespace.Testing]::Value)
+        }
+
+        $modulePath = Join-Path (Get-Module -Name PSDetour).ModuleBase 'PSDetour.psd1'
+
+        $ps = [PowerShell]::Create()
+        $null = $ps.AddScript({
+            param($ModulePath, $Hook)
+
+            $ErrorActionPreference = 'Stop'
+
+            Import-Module $ModulePath -ErrorAction Stop
+
+            "started"
+            $Hook | Trace-PSDetourProcess -CSharpToLoad @'
+using System;
+
+namespace Namespace;
+
+public enum Testing
+{
+    Value
+}
+'@
+        }).AddParameters(@{ModulePath = $modulePath; Hook = $hook})
+
+        $inputStream = [System.Management.Automation.PSDataCollection[object]]::new()
+        $outputStream = [System.Management.Automation.PSDataCollection[object]]::new()
+        $null = Register-ObjectEvent -InputObject $outputStream -EventName DataAdded -SourceIdentifier PSDetourAdded
+        try {
+            $psi = [System.Management.Automation.PSInvocationSettings]@{
+                Host = $host
+            }
+            $task = $ps.BeginInvoke($inputStream, $outputStream, $psi, $null, $null)
+
+            # Waits until started has been written
+            Wait-Event -SourceIdentifier PSDetourAdded | Remove-Event
+
+            # Add a second padding for the trace to actually start
+            Start-Sleep -Second 1
+            [PSDetourTest.Native]::Sleep(5)
+
+            $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
+            if (-not $dataAdded) {
+                if ($task.IsCompleted) {
+                    $ps.EndInvoke($task)
+                }
+                throw "timeout waiting for trace output"
+            }
+            $actual = $outputStream[$dataAdded.SourceEventArgs[0].Index]
+
+            $ps.Stop()
+            try {
+                $ps.EndInvoke($task)
+            }
+            catch [System.Management.Automation.PipelineStoppedException] {}
+        }
+        finally {
+            Remove-Event -SourceIdentifier PSDetourAdded -ErrorAction SilentlyContinue
+            Unregister-Event -SourceIdentifier PSDetourAdded
+        }
+
+        $actual | Should -Be 0
+        $actual.ToString() | Should -Be 'Value'
     }
 
     It "Hooks with address <Scenario>" -TestCases @(
@@ -694,6 +922,8 @@ Describe "Trace-PSDetourProcess" {
         $null = $ps.AddScript({
             param($ModulePath, $Hook)
 
+            $ErrorActionPreference = 'Stop'
+
             Import-Module $ModulePath -ErrorAction Stop
 
             "started"
@@ -718,6 +948,9 @@ Describe "Trace-PSDetourProcess" {
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {
+                if ($task.IsCompleted) {
+                    $ps.EndInvoke($task)
+                }
                 throw "timeout waiting for trace output"
             }
             $actual = $outputStream[$dataAdded.SourceEventArgs[0].Index]

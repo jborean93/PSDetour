@@ -21,6 +21,28 @@ Describe "Start|Stop-PSDetour" {
         $state.rpid | Should -Not -Be ([Runspace]::DefaultRunspace.Id)
     }
 
+    It "Hooks an action scriptblock that is from a function ast def in a different runspace" {
+        Function Invoke-MyHook {
+            param([int]$Milliseconds)
+
+            # By referencing $using: it will run in a new runspace
+            ($using:state)['args'] = $Milliseconds
+            ($using:state)['rpid'] = [Runspace]::DefaultRunspace.Id
+
+            $this.Invoke($Milliseconds)
+        }
+
+        $state = @{}
+        Start-PSDetour -Hook @(
+            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action ${Function:Invoke-MyHook}
+        )
+        [PSDetourTest.Native]::Sleep(5)
+        Stop-PSDetour
+
+        $state.args | Should -Be 5
+        $state.rpid | Should -Not -Be ([Runspace]::DefaultRunspace.Id)
+    }
+
     It "Hooks a method by address" {
         $lib = [System.Runtime.InteropServices.NativeLibrary]::Load("Kernel32.dll")
         $addr = [System.Runtime.InteropServices.NativeLibrary]::GetExport($lib, "Sleep")
@@ -83,6 +105,93 @@ Describe "Start|Stop-PSDetour" {
 
         $state.args | Should -Be 5
         $state.rpid | Should -Be ([Runspace]::DefaultRunspace.Id)
+    }
+
+    It "Hooks an action scriptblock that is from a function ast def in the same runspace" {
+        Function Invoke-MyHook {
+            param([int]$Milliseconds)
+
+            $state.args = $Milliseconds
+            $state.rpid = [Runspace]::DefaultRunspace.Id
+
+            $this.Invoke($Milliseconds)
+        }
+
+        $state = @{}
+        Start-PSDetour -Hook @(
+            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action ${Function:Invoke-MyHook}
+        )
+        [PSDetourTest.Native]::Sleep(5)
+        Stop-PSDetour
+
+        $state.args | Should -Be 5
+        $state.rpid | Should -Be ([Runspace]::DefaultRunspace.Id)
+    }
+
+    It "Hooks a method in another non PowerShell thread" {
+        $waitHandle = [System.Threading.AutoResetEvent]::new($false)
+        try {
+            $sleepThread = [PSDetourTest.TestHelpers]::Sleep(5, $waitHandle)
+
+            $customState = [PSCustomObject]@{
+                Args = $null
+                RPid = $null
+                Type = $null
+            }
+            Start-PSDetour -State $customState -Hook @(
+                New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+                    param([int]$Milliseconds)
+
+                    $this.State.Args = $Milliseconds
+                    $this.State.RPid = [Runspace]::DefaultRunspace.Id
+                    $this.State.Type = $this.State.GetType().Name
+
+                    $this.Invoke($Milliseconds)
+                }
+            )
+
+            $null = $waitHandle.Set()
+            $sleepThread.GetAwaiter().GetResult()
+
+            Stop-PSDetour
+
+            $customState.Args | Should -Be 5
+            $customState.RPid | Should -Not -Be ([Runspace]::DefaultRunspace.Id)
+            $customState.Type | Should -Be 'PSCustomObject'
+        }
+        finally {
+            $waitHandle.Dispose()
+        }
+    }
+
+    It "Hooks a method in another non PowerShell thread with using" {
+        $waitHandle = [System.Threading.AutoResetEvent]::new($false)
+        try {
+            $sleepThread = [PSDetourTest.TestHelpers]::Sleep(5, $waitHandle)
+
+            $state = @{}
+            Start-PSDetour -Hook @(
+                New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+                    param([int]$Milliseconds)
+
+                    ($using:state)['args'] = $Milliseconds
+                    ($using:state)['rpid'] = [Runspace]::DefaultRunspace.Id
+
+                    $this.Invoke($Milliseconds)
+                }
+            )
+
+            $null = $waitHandle.Set()
+            $sleepThread.GetAwaiter().GetResult()
+
+            Stop-PSDetour
+
+            $state.args | Should -Be 5
+            $state.rpid | Should -Not -Be ([Runspace]::DefaultRunspace.Id)
+        }
+        finally {
+            $waitHandle.Dispose()
+        }
     }
 
     It "Hooks method with custom state object" {
@@ -293,5 +402,269 @@ Describe "Start|Stop-PSDetour" {
         $state.OpenProcess | Should -BeTrue
         $state.OpenProcessToken | Should -BeFalse
         $state.OpenRes | Should -BeTrue
+    }
+
+    It "Uses a hook with a modified AST" {
+        $state = @{args = $null; rpid = $null}
+        $action = {
+            param([int]$Milliseconds)
+            # $state.args = $Milliseconds
+            # $state.rpid = ([Runspace]::DefaultRunspace.Id)
+            $this.Invoke($Milliseconds)
+        }
+
+        $blankExtent = [System.Management.Automation.Language.ScriptExtent]::new(
+            [System.Management.Automation.Language.ScriptPosition]::new($null, 0, 0, $null),
+            [System.Management.Automation.Language.ScriptPosition]::new($null, 0, 0, $null)
+        )
+        $newStatements = [System.Management.Automation.Language.StatementAst[]]@(
+            # $state.args = $Milliseconds
+            [System.Management.Automation.Language.AssignmentStatementAst]::new(
+                $blankExtent,
+                [System.Management.Automation.Language.MemberExpressionAst]::new(
+                    $blankExtent,
+                    [System.Management.Automation.Language.VariableExpressionAst]::new(
+                        $blankExtent,
+                        'state',
+                        $false
+                    ),
+                    [System.Management.Automation.Language.StringConstantExpressionAst]::new(
+                        $blankExtent,
+                        'args',
+                        'BareWord'),
+                    $false
+                ),
+                [System.Management.Automation.Language.TokenKind]::Equals,
+                [System.Management.Automation.Language.CommandExpressionAst]::new(
+                    $blankExtent,
+                    [System.Management.Automation.Language.VariableExpressionAst]::new(
+                        $blankExtent,
+                        'Milliseconds',
+                        $false
+                    ),
+                    $null
+                ),
+                $blankExtent
+            )
+
+            # $state.rpid = ([Runspace]::DefaultRunspace.Id)
+            [System.Management.Automation.Language.AssignmentStatementAst]::new(
+                $blankExtent,
+                [System.Management.Automation.Language.MemberExpressionAst]::new(
+                    $blankExtent,
+                    [System.Management.Automation.Language.VariableExpressionAst]::new(
+                        $blankExtent,
+                        'state',
+                        $false
+                    ),
+                    [System.Management.Automation.Language.StringConstantExpressionAst]::new(
+                        $blankExtent,
+                        'rpid',
+                        'BareWord'),
+                    $false
+                ),
+                [System.Management.Automation.Language.TokenKind]::Equals,
+                [System.Management.Automation.Language.CommandExpressionAst]::new(
+                    $blankExtent,
+                    [System.Management.Automation.Language.ParenExpressionAst]::new(
+                        $blankExtent,
+                        [System.Management.Automation.Language.PipelineAst]::new(
+                            $blankExtent,
+                            [System.Management.Automation.Language.CommandExpressionAst]::new(
+                                $blankExtent,
+                                [System.Management.Automation.Language.MemberExpressionAst]::new(
+                                    $blankExtent,
+                                    [System.Management.Automation.Language.MemberExpressionAst]::new(
+                                        $blankExtent,
+                                        [System.Management.Automation.Language.TypeExpressionAst]::new(
+                                            $blankExtent,
+                                            [System.Management.Automation.Language.TypeName]::new(
+                                                $blankExtent,
+                                                'Runspace'
+                                            )
+                                        ),
+                                        [System.Management.Automation.Language.StringConstantExpressionAst]::new(
+                                            $blankExtent,
+                                            'DefaultRunspace',
+                                            'BareWord'),
+                                        $true
+                                    ),
+                                    [System.Management.Automation.Language.StringConstantExpressionAst]::new(
+                                        $blankExtent,
+                                        'Id',
+                                        'BareWord'),
+                                    $false
+                                ),
+                                $null
+                            )
+                        )
+                    ),
+                    $null
+                ),
+                $blankExtent
+            )
+
+            foreach ($statement in $action.Ast.EndBlock.Statements) {
+                $statement.Copy()
+            }
+        )
+        $newAction = [System.Management.Automation.Language.ScriptBlockAst]::new(
+            $action.Ast.Extent,
+            $action.Ast.ParamBlock.Copy(),
+            [System.Management.Automation.Language.StatementBlockAst]::new($blankExtent, $newStatements, $null),
+            $action.Ast.IsFilter).GetScriptBlock()
+
+        Start-PSDetour -Hook @(
+            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action $newAction
+        )
+        [PSDetourTest.Native]::Sleep(5)
+        Stop-PSDetour
+
+        $state.args | Should -Be 5
+        $state.rpid | Should -Be ([Runspace]::DefaultRunspace.Id)
+    }
+
+    It "Uses a hook with a modified AST in another runspace" {
+        $state = @{args = $null; rpid = $null}
+        $action = {
+            param([int]$Milliseconds)
+            # ($using:state)['args'] = $Milliseconds
+            # ($using:state)['rpid'] = ([Runspace]::DefaultRunspace.Id)
+            $this.Invoke($Milliseconds)
+        }
+
+        $blankExtent = [System.Management.Automation.Language.ScriptExtent]::new(
+            [System.Management.Automation.Language.ScriptPosition]::new($null, 0, 0, $null),
+            [System.Management.Automation.Language.ScriptPosition]::new($null, 0, 0, $null)
+        )
+        $newStatements = [System.Management.Automation.Language.StatementAst[]]@(
+            # ($using:state)['args'] = $Milliseconds
+            [System.Management.Automation.Language.AssignmentStatementAst]::new(
+                $blankExtent,
+                [System.Management.Automation.Language.IndexExpressionAst]::new(
+                    $blankExtent,
+                    [System.Management.Automation.Language.ParenExpressionAst]::new(
+                        $blankExtent,
+                        [System.Management.Automation.Language.PipelineAst]::new(
+                            $blankExtent,
+                            [System.Management.Automation.Language.CommandExpressionAst]::new(
+                                $blankExtent,
+                                [System.Management.Automation.Language.UsingExpressionAst]::new(
+                                    $blankExtent,
+                                    [System.Management.Automation.Language.VariableExpressionAst]::new(
+                                        $blankExtent,
+                                        'state',
+                                        $false
+                                    )
+                                ),
+                                $null
+                            )
+                        )
+                    ),
+                    [System.Management.Automation.Language.StringConstantExpressionAst]::new(
+                        $blankExtent,
+                        'args',
+                        'SingleQuoted')
+                ),
+                [System.Management.Automation.Language.TokenKind]::Equals,
+                [System.Management.Automation.Language.CommandExpressionAst]::new(
+                    $blankExtent,
+                    [System.Management.Automation.Language.VariableExpressionAst]::new(
+                        $blankExtent,
+                        'Milliseconds',
+                        $false
+                    ),
+                    $null
+                ),
+                $blankExtent
+            )
+
+            # ($using:state)['rpid'] = ([Runspace]::DefaultRunspace.Id)
+            [System.Management.Automation.Language.AssignmentStatementAst]::new(
+                $blankExtent,
+                [System.Management.Automation.Language.IndexExpressionAst]::new(
+                    $blankExtent,
+                    [System.Management.Automation.Language.ParenExpressionAst]::new(
+                        $blankExtent,
+                        [System.Management.Automation.Language.PipelineAst]::new(
+                            $blankExtent,
+                            [System.Management.Automation.Language.CommandExpressionAst]::new(
+                                $blankExtent,
+                                [System.Management.Automation.Language.UsingExpressionAst]::new(
+                                    $blankExtent,
+                                    [System.Management.Automation.Language.VariableExpressionAst]::new(
+                                        $blankExtent,
+                                        'state',
+                                        $false
+                                    )
+                                ),
+                                $null
+                            )
+                        )
+                    ),
+                    [System.Management.Automation.Language.StringConstantExpressionAst]::new(
+                        $blankExtent,
+                        'rpid',
+                        'SingleQuoted')
+                ),
+                [System.Management.Automation.Language.TokenKind]::Equals,
+                [System.Management.Automation.Language.CommandExpressionAst]::new(
+                    $blankExtent,
+                    [System.Management.Automation.Language.ParenExpressionAst]::new(
+                        $blankExtent,
+                        [System.Management.Automation.Language.PipelineAst]::new(
+                            $blankExtent,
+                            [System.Management.Automation.Language.CommandExpressionAst]::new(
+                                $blankExtent,
+                                [System.Management.Automation.Language.MemberExpressionAst]::new(
+                                    $blankExtent,
+                                    [System.Management.Automation.Language.MemberExpressionAst]::new(
+                                        $blankExtent,
+                                        [System.Management.Automation.Language.TypeExpressionAst]::new(
+                                            $blankExtent,
+                                            [System.Management.Automation.Language.TypeName]::new(
+                                                $blankExtent,
+                                                'Runspace'
+                                            )
+                                        ),
+                                        [System.Management.Automation.Language.StringConstantExpressionAst]::new(
+                                            $blankExtent,
+                                            'DefaultRunspace',
+                                            'BareWord'),
+                                        $true
+                                    ),
+                                    [System.Management.Automation.Language.StringConstantExpressionAst]::new(
+                                        $blankExtent,
+                                        'Id',
+                                        'BareWord'),
+                                    $false
+                                ),
+                                $null
+                            )
+                        )
+                    ),
+                    $null
+                ),
+                $blankExtent
+            )
+
+            foreach ($statement in $action.Ast.EndBlock.Statements) {
+                $statement.Copy()
+            }
+        )
+        $newAction = [System.Management.Automation.Language.ScriptBlockAst]::new(
+            $action.Ast.Extent,
+            $action.Ast.ParamBlock.Copy(),
+            [System.Management.Automation.Language.StatementBlockAst]::new($blankExtent, $newStatements, $null),
+            $action.Ast.IsFilter).GetScriptBlock()
+
+        Start-PSDetour -Hook @(
+            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action $newAction
+        )
+        [PSDetourTest.Native]::Sleep(5)
+        Stop-PSDetour
+
+        $state.args | Should -Be 5
+        $state.rpid | Should -Not -Be ([Runspace]::DefaultRunspace.Id)
     }
 }

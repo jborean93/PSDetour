@@ -76,9 +76,6 @@ Trace-PSDetourProcess -ProcessId $otherProc -Hooks $hooks
 To stop a trace, press `ctrl+c`, or ensure one of your hooks sends the `StopTrace` signal.
 The `State` object set by `Trace-PSDetourProcess` has the following methods:
 
-* `GetFunction(string function)`
-    * Gets the function scriptblock of the function name specified
-    * These functions are populated by the `-FunctionsToDefine` parameter
 * `WriteDebug(string text)`
     * Writes a debug record
 * `WriteError(ErrorRecord errorRecord)`
