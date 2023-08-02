@@ -464,7 +464,7 @@ internal class ScriptBlockDelegate
 
 public class ScriptBlockInvokeContext: InvokeContext
 {
-    private static ThreadLocal<bool> ThreadData = new(() => false);
+    private static ThreadLocal<bool> InInvoke = new(() => false);
 
     internal ScriptBlock Action { get; }
     internal PSHost? Host { get; }
@@ -491,7 +491,7 @@ public class ScriptBlockInvokeContext: InvokeContext
         MethodInfo invokeMethod = invokeContext.GetType().GetMethod("Invoke",
             args.Select(a => a.GetType()).ToArray())!;
 
-        if (ThreadData.Value)
+        if (InInvoke.Value)
         {
             invokeMethod.Invoke(invokeContext, args);
         }
@@ -506,7 +506,7 @@ public class ScriptBlockInvokeContext: InvokeContext
         MethodInfo invokeMethod = invokeContext.GetType().GetMethod("Invoke",
             args.Select(a => a.GetType()).ToArray())!;
 
-        if (ThreadData.Value)
+        if (InInvoke.Value)
         {
             return (T?)invokeMethod.Invoke(invokeContext, args);
         }
@@ -525,32 +525,31 @@ public class ScriptBlockInvokeContext: InvokeContext
 
     internal static Collection<PSObject> InvokeInRunspace(ScriptBlockInvokeContext invokeContext, object[] args)
     {
+        Runspace? newRunspace = null;
+        Runspace? oldDefaultRunspace = Runspace.DefaultRunspace;
         try
         {
-            // If running on a thread with an active Runspace, favour that.
-            if (Runspace.DefaultRunspace != null && invokeContext.UsingVariables.Count == 0)
+            // If any of the steps below try and call this current hooked
+            // function we want it to run the actual function and not get stuck
+            // in a recursive loop.
+            InInvoke.Value = true;
+
+            if (oldDefaultRunspace == null || invokeContext.UsingVariables.Count > 0)
             {
-                return invokeContext.Action.InvokeWithContext(null, new() { new("this", invokeContext) }, args);
+                // Running with a thread without a runspace and one needs to be
+                // created.
+                newRunspace = RunspaceFactory.CreateRunspace(invokeContext.Host);
+                newRunspace.ThreadOptions = PSThreadOptions.UseCurrentThread;
+                newRunspace.Open();
+                Runspace.DefaultRunspace = newRunspace;
             }
 
-            ThreadData.Value = true;
-
-            InitialSessionState initialSessionState = InitialSessionState.CreateDefault2();
-            initialSessionState.Variables.Add(
-                new SessionStateVariableEntry("this", invokeContext, "invoke context info"));
-
-            using Runspace rs = RunspaceFactory.CreateRunspace(invokeContext.Host, initialSessionState);
-            rs.ThreadOptions = PSThreadOptions.UseCurrentThread;
-            rs.Open();
-
-            using PowerShell ps = PowerShell.Create();
-            ps.Runspace = rs;
-            ps.AddScript(invokeContext.Action.ToString());
-            foreach (object arg in args)
-            {
-                ps.AddArgument(arg);
-            }
-            ps.AddParameter("--%", invokeContext.UsingVariables);
+            using PowerShell ps = PowerShell.Create(RunspaceMode.CurrentRunspace);
+            ps.AddScript("param($Sbk, $ThisObj, $Arguments); $this = $ThisObj; & $Sbk @Arguments", true)
+                .AddArgument(invokeContext.Action)
+                .AddArgument(invokeContext)
+                .AddArgument(args)
+                .AddParameter("--%", invokeContext.UsingVariables);
 
             Collection<PSObject> vars = ps.Invoke();
             foreach (ErrorRecord err in ps.Streams.Error)
@@ -564,14 +563,28 @@ public class ScriptBlockInvokeContext: InvokeContext
         }
         catch (Exception e)
         {
-            string errMsg = string.Format("Hook exception {0}: {1}", e.GetType().Name, e.Message);
+            string stackTrace;
+            if (e is RuntimeException runtimeExc)
+            {
+                stackTrace = runtimeExc.ErrorRecord.ScriptStackTrace;
+            }
+            else
+            {
+                stackTrace = e.ToString();
+            }
+            string errMsg = string.Format("Hook exception {0}: {1}\n{2}", e.GetType().Name, e.Message, stackTrace);
             invokeContext.Host?.UI?.WriteErrorLine(errMsg);
 
             return new();
         }
         finally
         {
-            ThreadData.Value = false;
+            Runspace.DefaultRunspace = oldDefaultRunspace;
+            if (newRunspace != null)
+            {
+                newRunspace.Dispose();
+            }
+            InInvoke.Value = false;
         }
     }
 }
@@ -622,8 +635,13 @@ public sealed class ScriptBlockHook : DetourHook
     public ScriptBlockHook(string dllName, string methodName, ScriptBlock action, IntPtr address,
         bool addressIsOffset) : base(dllName, methodName, address, addressIsOffset)
     {
-        Action = action;
-        _scriptAst = (ScriptBlockAst)action.Ast;
+        // Strips off the affinity that ties the scriptblock to a specific runspace.
+        (Action, _scriptAst) = action.Ast switch
+        {
+            ScriptBlockAst sbkAst => (sbkAst.GetScriptBlock(), sbkAst),
+            FunctionDefinitionAst funcAst => (funcAst.GetScriptBlock(), (ScriptBlockAst)funcAst.Body),
+            _ => throw new RuntimeException($"Unknown ScriptBlock AST type '{action.Ast.GetType().FullName}', cannot strip Action affinity")
+        };
     }
 
     /// <summary>Set context info on the hook.</summary>

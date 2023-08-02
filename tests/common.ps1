@@ -15,6 +15,8 @@ using System.Management.Automation.Host;
 using System.Management.Automation.Runspaces;
 using System.Runtime.InteropServices;
 using System.Security;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace PSDetourTest
 {
@@ -47,6 +49,20 @@ namespace PSDetourTest
 
         [DllImport("Kernel32.dll")]
         public static extern void Sleep(int dwMilliSeconds);
+    }
+
+    public static class TestHelpers
+    {
+        public static Task Sleep(int milliseconds, EventWaitHandle waitHandle)
+        {
+            return Task.Run(() => SleepInAnotherThread(milliseconds, waitHandle));
+        }
+
+        private static void SleepInAnotherThread(int milliseconds, EventWaitHandle waitHandle)
+        {
+            waitHandle.WaitOne();
+            Native.Sleep(milliseconds);
+        }
     }
 
     public class Host : PSHost, IHostSupportsInteractiveSession

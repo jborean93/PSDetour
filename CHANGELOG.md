@@ -1,5 +1,11 @@
 # Changelog for PSDetour
 
+## v0.4.0 - TBD
+
+* Automatically define `-FunctionsToDefine` in the hooks being run with `Trace-PSDetourProcess`, no need to call `$this.State.GetFunction('Name')` to redefine it
+  * `$this.State.GetFunction` has been removed and will no longer work
+* Ensure the scriptblocks used with `Trace-PSDetourProcess` keep the original stacktrace locations for better debugging
+
 ## v0.3.1 - 2023-07-25
 
 * Added lock for `Trace-PSDetourProcess` output pipe to avoid multiple threads clobbering the serialized output
