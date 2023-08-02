@@ -622,11 +622,12 @@ public sealed class ScriptBlockHook : DetourHook
 {
     private Dictionary<string, object>? _usingVars;
     private PSHost? _host;
-    private ScriptBlockAst _scriptAst;
     private object? _state;
     private ThreadLocal<bool> _threadData = new(() => false);
 
     public ScriptBlock Action { get; }
+
+    internal ScriptBlockAst ScriptAst { get; }
 
     public ScriptBlockHook(string dllName, string methodName, ScriptBlock action)
         : this(dllName, methodName, action, IntPtr.Zero, false)
@@ -636,7 +637,7 @@ public sealed class ScriptBlockHook : DetourHook
         bool addressIsOffset) : base(dllName, methodName, address, addressIsOffset)
     {
         // Strips off the affinity that ties the scriptblock to a specific runspace.
-        (Action, _scriptAst) = action.Ast switch
+        (Action, ScriptAst) = action.Ast switch
         {
             ScriptBlockAst sbkAst => (sbkAst.GetScriptBlock(), sbkAst),
             FunctionDefinitionAst funcAst => (funcAst.GetScriptBlock(), (ScriptBlockAst)funcAst.Body),
@@ -690,12 +691,12 @@ public sealed class ScriptBlockHook : DetourHook
     private TypeInformation GetReturnType()
     {
         return ProcessOutputType(
-            (IEnumerable<AttributeAst>?)_scriptAst.ParamBlock?.Attributes ?? Array.Empty<AttributeAst>());
+            (IEnumerable<AttributeAst>?)ScriptAst.ParamBlock?.Attributes ?? Array.Empty<AttributeAst>());
     }
 
     private TypeInformation[] GetParameterTypes()
     {
-        return _scriptAst.ParamBlock?.Parameters
+        return ScriptAst.ParamBlock?.Parameters
             ?.Select(p => ProcessParameterType(p))
             ?.ToArray() ?? Array.Empty<TypeInformation>();
     }

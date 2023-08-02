@@ -78,7 +78,7 @@ public sealed class TracePSDetourProcessCommand : PSCmdlet
         {
             if (h is ScriptBlockHook sbkHook)
             {
-                ScriptBlockAst actionAst = (ScriptBlockAst)sbkHook.Action.Ast;
+                ScriptBlockAst actionAst = sbkHook.ScriptAst;
                 _hooks.Add(new Dictionary<string, object>()
                 {
                     { "Action", sbkHook.Action.ToString() },
