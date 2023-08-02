@@ -1,6 +1,6 @@
 # Changelog for PSDetour
 
-## v0.4.0 - TBD
+## v0.4.0 - 2023-08-03
 
 * Automatically define `-FunctionsToDefine` in the hooks being run with `Trace-PSDetourProcess`, no need to call `$this.State.GetFunction('Name')` to redefine it
   * `$this.State.GetFunction` has been removed and will no longer work
