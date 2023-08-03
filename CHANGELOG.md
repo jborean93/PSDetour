@@ -1,5 +1,9 @@
 # Changelog for PSDetour
 
+## v0.4.1 - TBD
+
+* Allow using a scriptblock backed by a `FunctionDefinitionAst` (`${Function:Func-Name}`) for hooks provided to `Trace-PSDetourProcess`
+
 ## v0.4.0 - 2023-08-03
 
 * Automatically define `-FunctionsToDefine` in the hooks being run with `Trace-PSDetourProcess`, no need to call `$this.State.GetFunction('Name')` to redefine it

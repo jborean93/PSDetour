@@ -765,7 +765,9 @@ Describe "Trace-PSDetourProcess" {
         $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
             param([int]$Milliseconds)
 
-            $this.State.WriteObject((Test-Function))
+            $this.State.WriteObject((Test-Function1))
+            $this.State.WriteObject((Test-Function2))
+            # $this.State.WriteObject(2)
         }
 
         $modulePath = Join-Path (Get-Module -Name PSDetour).ModuleBase 'PSDetour.psd1'
@@ -776,11 +778,14 @@ Describe "Trace-PSDetourProcess" {
 
             $ErrorActionPreference = 'Stop'
 
+            Function Test-Function { 2 }
+
             Import-Module $ModulePath -ErrorAction Stop
 
             "started"
             $Hook | Trace-PSDetourProcess -FunctionsToDefine @{
-                'Test-Function' = {1}
+                'Test-Function1' = {1}
+                'Test-Function2' = ${Function:Test-Function}
             }
         }).AddParameters(@{ModulePath = $modulePath; Hook = $hook})
 
@@ -800,14 +805,19 @@ Describe "Trace-PSDetourProcess" {
             Start-Sleep -Second 1
             [PSDetourTest.Native]::Sleep(5)
 
-            $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
-            if (-not $dataAdded) {
-                if ($task.IsCompleted) {
-                    $ps.EndInvoke($task)
+            $actual = @(
+                for ($i = 0; $i -lt 2; $i++) {
+                    $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
+                    if (-not $dataAdded) {
+                        if ($task.IsCompleted) {
+                            $ps.EndInvoke($task)
+                        }
+                        throw "timeout waiting for trace output"
+                    }
+                    $outputStream[$dataAdded.SourceEventArgs[0].Index]
+                    Remove-Event -EventIdentifier $dataAdded.EventIdentifier
                 }
-                throw "timeout waiting for trace output"
-            }
-            $actual = $outputStream[$dataAdded.SourceEventArgs[0].Index]
+            )
 
             $ps.Stop()
             try {
@@ -820,15 +830,18 @@ Describe "Trace-PSDetourProcess" {
             Unregister-Event -SourceIdentifier PSDetourAdded
         }
 
-        $actual | Should -Be 1
+        $actual.Count | Should -Be 2
+        $actual[0] | Should -Be 1
+        $actual[1] | Should -Be 2
     }
 
     It "Shares CSharp def" {
-        $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+        Function Trace-Sleep {
             param([int]$Milliseconds)
 
             $this.State.WriteObject([Namespace.Testing]::Value)
         }
+        $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action ${Function:Trace-Sleep}
 
         $modulePath = Join-Path (Get-Module -Name PSDetour).ModuleBase 'PSDetour.psd1'
 
