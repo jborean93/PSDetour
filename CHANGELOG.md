@@ -1,6 +1,6 @@
 # Changelog for PSDetour
 
-## v0.4.1 - TBD
+## v0.4.1 - 2023-08-03
 
 * Allow using a scriptblock backed by a `FunctionDefinitionAst` (`${Function:Func-Name}`) for hooks provided to `Trace-PSDetourProcess`
 
