@@ -37,7 +37,7 @@ task AssertDetours {
 
 task BuildDocs {
     $helpParams = @{
-        Path       = [IO.Path]::Combine($PSScriptRoot, 'docs', 'en-US')
+        Path = [IO.Path]::Combine($PSScriptRoot, 'docs', 'en-US')
         OutputPath = [IO.Path]::Combine($ReleasePath, 'en-US')
     }
     New-ExternalHelp @helpParams | Out-Null
@@ -75,10 +75,10 @@ task BuildManaged {
 
 task CopyToRelease {
     $copyParams = @{
-        Path        = [IO.Path]::Combine($PowerShellPath, '*')
+        Path = [IO.Path]::Combine($PowerShellPath, '*')
         Destination = $ReleasePath
-        Recurse     = $true
-        Force       = $true
+        Recurse = $true
+        Force = $true
     }
     Copy-Item @copyParams
 
@@ -104,26 +104,16 @@ task CopyToRelease {
 }
 
 task Sign {
-    if (-not $env:AZURE_KEYVAULT_CREDENTIALS) {
+    $vaultName = $env:AZURE_KEYVAULT_NAME
+    $vaultCert = $env:AZURE_KEYVAULT_CERT
+    if (-not $vaultName -or -not $vaultCert) {
         return
     }
 
-    $credInfo = ConvertFrom-Json -InputObject $env:AZURE_KEYVAULT_CREDENTIALS
-    $vaultName = $credInfo.vaultName
-    $vaultCert = $credInfo.vaultCert
-
-    $env:AZURE_CLIENT_ID = $credInfo.clientId
-    $env:AZURE_CLIENT_SECRET = $credInfo.clientSecret
-    $env:AZURE_TENANT_ID = $credInfo.tenantId
     $key = Get-OpenAuthenticodeAzKey -Vault $vaultName -Certificate $vaultCert
-    $env:AZURE_CLIENT_ID = ''
-    $env:AZURE_CLIENT_SECRET = ''
-    $env:AZURE_TENANT_ID = ''
-
     $signParams = @{
         Key = $key
         TimeStampServer = 'http://timestamp.digicert.com'
-        HashAlgorithm = 'SHA256'
     }
 
     Get-ChildItem -LiteralPath $ReleasePath -Recurse -ErrorAction SilentlyContinue |
@@ -144,9 +134,9 @@ task Package {
     }
 
     $repoParams = @{
-        Name               = 'LocalRepo'
-        SourceLocation     = $BuildPath
-        PublishLocation    = $BuildPath
+        Name = 'LocalRepo'
+        SourceLocation = $BuildPath
+        PublishLocation = $BuildPath
         InstallationPolicy = 'Trusted'
     }
     if (Get-PSRepository -Name $repoParams.Name -ErrorAction SilentlyContinue) {
@@ -164,9 +154,9 @@ task Package {
 
 task Analyze {
     $pssaSplat = @{
-        Path        = $ReleasePath
-        Settings    = [IO.Path]::Combine($PSScriptRoot, 'ScriptAnalyzerSettings.psd1')
-        Recurse     = $true
+        Path = $ReleasePath
+        Settings = [IO.Path]::Combine($PSScriptRoot, 'ScriptAnalyzerSettings.psd1')
+        Recurse = $true
         ErrorAction = 'SilentlyContinue'
     }
     $results = Invoke-ScriptAnalyzer @pssaSplat
@@ -202,12 +192,10 @@ task DoUnitTest {
             'test'
             '"{0}"' -f $testsPath
             '--results-directory', $tempResultsPath
-            if ($Configuration -eq 'Debug') {
-                '--collect:"XPlat Code Coverage"'
-                '--'
-                "$runSettingsPrefix.Format=json"
-                "$runSettingsPrefix.IncludeDirectory=`"$CSharpPath`""
-            }
+            '--collect:"XPlat Code Coverage"'
+            '--'
+            "$runSettingsPrefix.Format=json"
+            "$runSettingsPrefix.IncludeDirectory=`"$CSharpPath`""
         )
 
         Write-Host "Running unit tests"
@@ -217,9 +205,7 @@ task DoUnitTest {
             throw "Unit tests failed"
         }
 
-        if ($Configuration -eq 'Debug') {
-            Move-Item -Path $tempResultsPath/*/*.json -Destination $resultsPath/UnitCoverage.json -Force
-        }
+        Move-Item -Path $tempResultsPath/*/*.json -Destination $resultsPath/UnitCoverage.json -Force
     }
     finally {
         Remove-Item -LiteralPath $tempResultsPath -Force -Recurse
@@ -250,35 +236,32 @@ task DoTest {
         '-OutputFile', $resultsFile
     )
 
-    if ($Configuration -eq 'Debug') {
-        # We use coverlet to collect code coverage of our binary
-        $unitCoveragePath = [IO.Path]::Combine($resultsPath, 'UnitCoverage.json')
-        $targetArgs = '"' + ($arguments -join '" "') + '"'
+    # We use coverlet to collect code coverage of our binary
+    $unitCoveragePath = [IO.Path]::Combine($resultsPath, 'UnitCoverage.json')
+    $targetArgs = '"' + ($arguments -join '" "') + '"'
 
-        if ($PSVersionTable.PSVersion.Major -eq 7 -and $PSVersionTable.PSVersion.Minor -eq 2) {
-            $pwshFramework = 'net6.0-windows'
-            $targetArgs = '"' + ($targetArgs -replace '"', '\"') + '"'
-            $watchFolder = '"{0}"' -f ([IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework))
-        }
-        else {
-            $pwshFramework = 'net7.0-windows'
-            $watchFolder = [IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework)
-        }
-
-        $arguments = @(
-            $watchFolder
-            '--target', $pwsh
-            '--targetargs', $targetArgs
-            '--output', ([IO.Path]::Combine($resultsPath, 'Coverage.xml'))
-            '--format', 'cobertura'
-            if (Test-Path -LiteralPath $unitCoveragePath) {
-                '--merge-with', $unitCoveragePath
-            }
-        )
-        $pwsh = 'coverlet'
+    if ($PSVersionTable.PSVersion.Major -eq 7 -and $PSVersionTable.PSVersion.Minor -eq 2) {
+        $pwshFramework = 'net6.0-windows'
+        $targetArgs = '"' + ($targetArgs -replace '"', '\"') + '"'
+        $watchFolder = '"{0}"' -f ([IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework))
+    }
+    else {
+        $pwshFramework = 'net7.0-windows'
+        $watchFolder = [IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework)
     }
 
-    &$pwsh $arguments
+    $arguments = @(
+        $watchFolder
+        '--target', $pwsh
+        '--targetargs', $targetArgs
+        '--output', ([IO.Path]::Combine($resultsPath, 'Coverage.xml'))
+        '--format', 'cobertura'
+        if (Test-Path -LiteralPath $unitCoveragePath) {
+            '--merge-with', $unitCoveragePath
+        }
+    )
+
+    & coverlet $arguments
     if ($LASTEXITCODE) {
         throw "Pester failed tests"
     }
