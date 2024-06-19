@@ -63,8 +63,16 @@ public static class Hook
 
     public static void Stop()
     {
-        using var _ = Detour.DetourTransactionBegin();
-        Detour.DetourUpdateThread(Kernel32.GetCurrentThread());
+        // Ensure we detach the hooks and commit the change before freeing our pointers.
+        using (var _ = Detour.DetourTransactionBegin())
+        {
+            Detour.DetourUpdateThread(Kernel32.GetCurrentThread());
+
+            foreach (RunningHook hook in RunningHooks)
+            {
+                hook.Detach();
+            }
+        }
 
         foreach (RunningHook hook in RunningHooks)
         {
@@ -153,6 +161,15 @@ internal sealed class RunningHook : IDisposable
         {
             Detour.DetourAttach(OriginalMethod.AddrOfPinnedObject(), DetourMethod);
             _isAttached = true;
+        }
+    }
+
+    public void Detach()
+    {
+        if (_isAttached)
+        {
+            Detour.DetourDetach(OriginalMethod.AddrOfPinnedObject(), DetourMethod);
+            _isAttached = false;
         }
     }
 

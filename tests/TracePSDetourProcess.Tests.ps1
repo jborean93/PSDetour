@@ -2,7 +2,7 @@
 
 Describe "Trace-PSDetourProcess" {
     It "Traces current process" {
-        $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+        $hook = New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
             param([int]$Milliseconds)
 
             $this.State.WriteObject($Milliseconds)
@@ -36,7 +36,7 @@ Describe "Trace-PSDetourProcess" {
 
             # Add a second padding for the trace to actually start
             Start-Sleep -Second 1
-            [PSDetourTest.Native]::Sleep(5)
+            [PSDetourTest.Native]::VoidWithArg(5)
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {
@@ -62,7 +62,7 @@ Describe "Trace-PSDetourProcess" {
     }
 
     It "Traces current process with outputs" {
-        $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+        $hook = New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
             param([int]$Milliseconds)
 
             $this.State.WriteDebug("debug")
@@ -119,7 +119,7 @@ Describe "Trace-PSDetourProcess" {
 
             # Add a second padding for the trace to actually start
             Start-Sleep -Second 1
-            [PSDetourTest.Native]::Sleep(5)
+            [PSDetourTest.Native]::VoidWithArg(5)
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {
@@ -195,7 +195,7 @@ Describe "Trace-PSDetourProcess" {
                     if (-not $waitEvent2.WaitOne(5000)) {
                         throw "Timed out waiting to start"
                     }
-                    [PSDetourTest.Native]::Sleep(5)
+                    [PSDetourTest.Native]::VoidWithArg(5)
                 }
                 finally {
                     $waitEvent1.Dispose()
@@ -215,7 +215,7 @@ Describe "Trace-PSDetourProcess" {
             }
             $proc = Start-Process @procParams
 
-            $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+            $hook = New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
                 param([int]$Milliseconds)
 
                 $this.State.WriteObject($Milliseconds)
@@ -319,7 +319,7 @@ Describe "Trace-PSDetourProcess" {
                     if (-not $waitEvent2.WaitOne(5000)) {
                         throw "Timed out waiting to start"
                     }
-                    [PSDetourTest.Native]::Sleep(0)
+                    [PSDetourTest.Native]::VoidWithArg(0)
                 }
                 finally {
                     $waitEvent1.Dispose()
@@ -339,7 +339,7 @@ Describe "Trace-PSDetourProcess" {
             }
             $proc = Start-Process @procParams
 
-            $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+            $hook = New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
                 param([int]$Milliseconds)
 
                 enum MyEnum {
@@ -447,7 +447,7 @@ Describe "Trace-PSDetourProcess" {
                     if (-not $waitEvent2.WaitOne(5000)) {
                         throw "Timed out waiting to start"
                     }
-                    [PSDetourTest.Native]::Sleep(5)
+                    [PSDetourTest.Native]::VoidWithArg(5)
                 }
                 finally {
                     $waitEvent1.Dispose()
@@ -467,7 +467,7 @@ Describe "Trace-PSDetourProcess" {
             }
             $proc = Start-Process @procParams
 
-            $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+            $hook = New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
                 param([int]$Milliseconds)
 
                 $this.State.WriteDebug("debug")
@@ -617,7 +617,7 @@ Describe "Trace-PSDetourProcess" {
                     if (-not $waitEvent2.WaitOne(5000)) {
                         throw "Timed out waiting to start"
                     }
-                    [PSDetourTest.Native]::Sleep(5)
+                    [PSDetourTest.Native]::VoidWithArg(5)
                 }
                 finally {
                     $waitEvent1.Dispose()
@@ -634,7 +634,7 @@ Describe "Trace-PSDetourProcess" {
             }
             $proc = Start-Process @procParams
 
-            $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+            $hook = New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
                 param([int]$Milliseconds)
 
                 $this.State.WriteObject($Milliseconds)
@@ -705,7 +705,7 @@ Describe "Trace-PSDetourProcess" {
     }
 
     It "Stops trace" {
-        $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+        $hook = New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
             param([int]$Milliseconds)
 
             $this.State.WriteObject($Milliseconds)
@@ -740,7 +740,7 @@ Describe "Trace-PSDetourProcess" {
 
             # Add a second padding for the trace to actually start
             Start-Sleep -Second 1
-            [PSDetourTest.Native]::Sleep(5)
+            [PSDetourTest.Native]::VoidWithArg(5)
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {
@@ -762,7 +762,7 @@ Describe "Trace-PSDetourProcess" {
     }
 
     It "Shares functions" {
-        $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+        $hook = New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
             param([int]$Milliseconds)
 
             $this.State.WriteObject((Test-Function1))
@@ -803,7 +803,7 @@ Describe "Trace-PSDetourProcess" {
 
             # Add a second padding for the trace to actually start
             Start-Sleep -Second 1
-            [PSDetourTest.Native]::Sleep(5)
+            [PSDetourTest.Native]::VoidWithArg(5)
 
             $actual = @(
                 for ($i = 0; $i -lt 2; $i++) {
@@ -841,7 +841,7 @@ Describe "Trace-PSDetourProcess" {
 
             $this.State.WriteObject([Namespace.Testing]::Value)
         }
-        $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action ${Function:Trace-Sleep}
+        $hook = New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action ${Function:Trace-Sleep}
 
         $modulePath = Join-Path (Get-Module -Name PSDetour).ModuleBase 'PSDetour.psd1'
 
@@ -880,7 +880,7 @@ public enum Testing
 
             # Add a second padding for the trace to actually start
             Start-Sleep -Second 1
-            [PSDetourTest.Native]::Sleep(5)
+            [PSDetourTest.Native]::VoidWithArg(5)
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {
@@ -912,18 +912,18 @@ public enum Testing
     ) {
         param($Scenario)
 
-        $k32 = [System.Runtime.InteropServices.NativeLibrary]::Load("Kernel32.dll")
-        $sleepAddr = [System.Runtime.InteropServices.NativeLibrary]::GetExport($k32, "Sleep")
+        $dllLib = [System.Runtime.InteropServices.NativeLibrary]::Load($exampleDllPath)
+        $methAddr = [System.Runtime.InteropServices.NativeLibrary]::GetExport($dllLib, "VoidWithArg")
         $hookParams = @{}
         if ($Scenario -eq 'Absolute') {
-            $hookParams.Address = $sleepAddr
+            $hookParams.Address = $methAddr
         }
         else {
-            $hookParams.Address = [IntPtr]($sleepAddr.ToInt64() - $k32.ToInt64())
+            $hookParams.Address = [IntPtr]($methAddr.ToInt64() - $dllLib.ToInt64())
             $hookParams.AddressIsOffset = $true
         }
 
-        $hook = New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+        $hook = New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
             param([int]$Milliseconds)
 
             $this.State.WriteObject($Milliseconds)
@@ -957,7 +957,7 @@ public enum Testing
 
             # Add a second padding for the trace to actually start
             Start-Sleep -Second 1
-            [PSDetourTest.Native]::Sleep(5)
+            [PSDetourTest.Native]::VoidWithArg(5)
 
             $dataAdded = Wait-Event -SourceIdentifier PSDetourAdded -Timeout 5
             if (-not $dataAdded) {

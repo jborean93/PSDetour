@@ -1,5 +1,11 @@
 # Changelog for PSDetour
 
+## v0.5.0 - TBD
+
+* Update detours to the latest commit which includes fixes not present in the last tagged build
+* Add `arm64` build
+* Add various improvements around error handling and concurrent calling of hooks
+
 ## v0.4.1 - 2023-08-03
 
 * Allow using a scriptblock backed by a `FunctionDefinitionAst` (`${Function:Func-Name}`) for hooks provided to `Trace-PSDetourProcess`

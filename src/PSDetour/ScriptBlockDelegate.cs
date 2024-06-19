@@ -140,9 +140,7 @@ internal class ScriptBlockDelegate
 
         MethodInfo invokeDelegate = delegateType.GetMethod("Invoke")!;
         CreateThisContextInvokeMethod(invokeContextBuilder, returnType, parameters, delegateType,
-            invokeDelegate, false);
-        // CreateThisContextInvokeMethod(invokeContextBuilder, returnType, parameters, delegateType,
-        //     invokeDelegate, true, methodName);
+            invokeDelegate);
 
         // If any of the parameters are ByRef types then a second delegate that
         // accepts the Ref<T> overload should be created. This allows the
@@ -159,7 +157,7 @@ internal class ScriptBlockDelegate
                 .Select(p => p.CreateDetourRefInformation())
                 .ToArray();
             CreateThisContextInvokeMethod(invokeContextBuilder, returnType, detourParameters, delegatePtrType,
-                delegatePtrType.GetMethod("Invoke")!, false);
+                delegatePtrType.GetMethod("Invoke")!);
         }
 
         Type thisContextType = invokeContextBuilder.CreateType()!;
@@ -354,24 +352,13 @@ internal class ScriptBlockDelegate
     }
 
     private static MethodBuilder CreateThisContextInvokeMethod(TypeBuilder classType, TypeInformation returnType,
-        TypeInformation[] parameters, Type delegateType, MethodInfo delegateMethod, bool forPSCodeMethod,
-        string? methodName = null)
+        TypeInformation[] parameters, Type delegateType, MethodInfo delegateMethod)
     {
         System.Reflection.MethodAttributes methodAttr = System.Reflection.MethodAttributes.Public;
         TypeInformation[] methodParameters = parameters;
-        OpCode getOrignalMethodCallOpCode = OpCodes.Call;
-
-        if (forPSCodeMethod)
-        {
-            methodAttr |= System.Reflection.MethodAttributes.Static;
-            methodParameters = new TypeInformation[] {
-                new(typeof(PSObject), name: "this")
-            }.Concat(parameters).ToArray();
-            getOrignalMethodCallOpCode = OpCodes.Callvirt;
-        }
 
         MethodBuilder mb = classType.DefineMethod(
-            methodName ?? "Invoke",
+            "Invoke",
             methodAttr,
             CallingConventions.Standard,
             returnType.Type,
@@ -387,21 +374,76 @@ internal class ScriptBlockDelegate
             CreateParameter(mb, i + 1, methodParameters[i]);
         }
 
+        /*
+        public T Invoke(...)
+        {
+            GCHandle origMethod = this.OrigMethod;
+
+            // CDelegate is defined dynamically.
+            CDelegate func;
+            try
+            {
+                IntPtr origMethPtr = origMethod.AddrOfPinnedObject();
+                func = Marshal.GetDelegateForFunctionPointer<CDelegate>(origMethPtr);
+            }
+            catch (NullReferenceException)
+            {
+                // If the delegate has been cleaned it could raise this exception.
+                // Just return the default value here as a fallback.
+                return default;
+            }
+
+            T res;
+            fixed (T* ... = ...) // fixes all ref arguments
+            {
+                res = func(...);
+            }
+            Marshal.SetLastPInvokeError(GetLastError());
+
+            return res;
+        }
+        */
+
         ILGenerator il = mb.GetILGenerator();
+
+        Label returnLabel = il.DefineLabel();
+
         LocalBuilder originalMethodVar = il.DeclareLocal(typeof(GCHandle));
+        LocalBuilder delegateVar = il.DeclareLocal(delegateType);
         LocalBuilder? retVar = null;
         if (returnType.Type != typeof(void))
         {
             retVar = il.DeclareLocal(returnType.Type);
         }
 
+        Type nullReferenceException = typeof(NullReferenceException);
+
         il.Emit(OpCodes.Ldarg_0);
-        il.Emit(getOrignalMethodCallOpCode, ReflectionInfo.GetOriginalMethodFunc);
+        il.Emit(OpCodes.Call, ReflectionInfo.GetOriginalMethodFunc);
         il.Emit(OpCodes.Stloc, originalMethodVar);
+
+        Label tryBlock = il.BeginExceptionBlock();
+
         il.Emit(OpCodes.Ldloca, originalMethodVar);
         il.Emit(OpCodes.Call, ReflectionInfo.AddrOfPinnedObjFunc);
         il.Emit(OpCodes.Ldind_I);
         il.Emit(OpCodes.Call, ReflectionInfo.GetDelegateForFunc.MakeGenericMethod(new[] { delegateType }));
+        il.Emit(OpCodes.Stloc, delegateVar);
+
+        il.Emit(OpCodes.Leave_S, tryBlock);
+
+        il.BeginCatchBlock(nullReferenceException);
+        il.Emit(OpCodes.Pop);
+
+        if (retVar != null)
+        {
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Stloc, retVar);
+        }
+        il.Emit(OpCodes.Leave_S, returnLabel);
+        il.EndExceptionBlock();
+
+        il.Emit(OpCodes.Ldloc, delegateVar);
         for (int i = 0; i < parameters.Length; i++)
         {
             il.Emit(OpCodes.Ldarg, i + 1);
@@ -413,8 +455,8 @@ internal class ScriptBlockDelegate
                 il.Emit(OpCodes.Ldfld, ptrField);
             }
         }
-        il.Emit(OpCodes.Callvirt, delegateMethod);
 
+        il.Emit(OpCodes.Callvirt, delegateMethod);
         if (retVar != null)
         {
             il.Emit(OpCodes.Stloc, retVar);
@@ -423,6 +465,7 @@ internal class ScriptBlockDelegate
         il.Emit(OpCodes.Call, ReflectionInfo.SbkGetLastErrorFunc);
         il.Emit(OpCodes.Call, ReflectionInfo.SetLastPInvokeErrorFunc);
 
+        il.MarkLabel(returnLabel);
         if (retVar != null)
         {
             il.Emit(OpCodes.Ldloc, retVar);
@@ -623,7 +666,7 @@ public sealed class ScriptBlockHook : DetourHook
     private Dictionary<string, object>? _usingVars;
     private PSHost? _host;
     private object? _state;
-    private ThreadLocal<bool> _threadData = new(() => false);
+    // private ThreadLocal<bool> _threadData = new(() => false);
 
     public ScriptBlock Action { get; }
 

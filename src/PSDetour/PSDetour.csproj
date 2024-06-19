@@ -9,7 +9,6 @@
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(TargetFramework)' == 'net6.0-windows' ">
-    <DefineConstants>$(DefineConstants);PWSH72</DefineConstants>
     <InternalsAssemblyNames>System.Management.Automation</InternalsAssemblyNames>
   </PropertyGroup>
 
@@ -18,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup Condition=" '$(TargetFramework)' != 'net6.0-windows' ">
-    <PackageReference Include="System.Management.Automation" Version="7.3.0-preview.8" PrivateAssets="all" />
+    <PackageReference Include="System.Management.Automation" Version="7.3.0" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup Condition=" '$(TargetFramework)' == 'net6.0-windows' ">

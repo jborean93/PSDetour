@@ -64,9 +64,11 @@ jobs:
       matrix:
         info:
         - name: PS_7.2_x64
-          psversion: '7.2.7'
+          psversion: '7.2.0'
         - name: PS_7.3_x64
           psversion: '7.3.0'
+        - name: PS_7.4_x64
+          psversion: '7.4.0'
 
     steps:
     - uses: actions/checkout@v3

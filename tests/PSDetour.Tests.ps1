@@ -4,7 +4,7 @@ Describe "Start|Stop-PSDetour" {
     It "Hooks a void method" {
         $state = @{}
         Start-PSDetour -Hook @(
-            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+            New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
                 param([int]$Milliseconds)
 
                 # By referencing $using: it will run in a new runspace
@@ -14,7 +14,7 @@ Describe "Start|Stop-PSDetour" {
                 $this.Invoke($Milliseconds)
             }
         )
-        [PSDetourTest.Native]::Sleep(5)
+        [PSDetourTest.Native]::VoidWithArg(5)
         Stop-PSDetour
 
         $state.args | Should -Be 5
@@ -34,9 +34,9 @@ Describe "Start|Stop-PSDetour" {
 
         $state = @{}
         Start-PSDetour -Hook @(
-            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action ${Function:Invoke-MyHook}
+            New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action ${Function:Invoke-MyHook}
         )
-        [PSDetourTest.Native]::Sleep(5)
+        [PSDetourTest.Native]::VoidWithArg(5)
         Stop-PSDetour
 
         $state.args | Should -Be 5
@@ -44,11 +44,11 @@ Describe "Start|Stop-PSDetour" {
     }
 
     It "Hooks a method by address" {
-        $lib = [System.Runtime.InteropServices.NativeLibrary]::Load("Kernel32.dll")
-        $addr = [System.Runtime.InteropServices.NativeLibrary]::GetExport($lib, "Sleep")
+        $lib = [System.Runtime.InteropServices.NativeLibrary]::Load($exampleDllPath)
+        $addr = [System.Runtime.InteropServices.NativeLibrary]::GetExport($lib, "VoidWithArg")
         $state = @{}
         Start-PSDetour -Hook @(
-            New-PSDetourHook -DllName Kernel32 -MethodName Sleep -Address $addr -Action {
+            New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Address $addr -Action {
                 param([int]$Milliseconds)
 
                 # By referencing $using: it will run in a new runspace
@@ -58,7 +58,7 @@ Describe "Start|Stop-PSDetour" {
                 $this.Invoke($Milliseconds)
             }
         )
-        [PSDetourTest.Native]::Sleep(5)
+        [PSDetourTest.Native]::VoidWithArg(5)
         Stop-PSDetour
 
         $state.args | Should -Be 5
@@ -66,12 +66,12 @@ Describe "Start|Stop-PSDetour" {
     }
 
     It "Hooks a method by address offset" {
-        $lib = [System.Runtime.InteropServices.NativeLibrary]::Load("Kernel32.dll")
-        $methodAddr = [System.Runtime.InteropServices.NativeLibrary]::GetExport($lib, "Sleep")
+        $lib = [System.Runtime.InteropServices.NativeLibrary]::Load($exampleDllPath)
+        $methodAddr = [System.Runtime.InteropServices.NativeLibrary]::GetExport($lib, "VoidWithArg")
         $addr = [IntPtr]($methodAddr.ToInt64() - $lib.ToInt64())
         $state = @{}
         Start-PSDetour -Hook @(
-            New-PSDetourHook -DllName Kernel32 -MethodName Sleep -Address $addr -AddressIsOffset -Action {
+            New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Address $addr -AddressIsOffset -Action {
                 param([int]$Milliseconds)
 
                 # By referencing $using: it will run in a new runspace
@@ -81,7 +81,7 @@ Describe "Start|Stop-PSDetour" {
                 $this.Invoke($Milliseconds)
             }
         )
-        [PSDetourTest.Native]::Sleep(5)
+        [PSDetourTest.Native]::VoidWithArg(5)
         Stop-PSDetour
 
         $state.args | Should -Be 5
@@ -91,7 +91,7 @@ Describe "Start|Stop-PSDetour" {
     It "Hooks method in same runspace if no using vars are present" {
         $state = @{}
         Start-PSDetour -Hook @(
-            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+            New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
                 param([int]$Milliseconds)
 
                 $state.args = $Milliseconds
@@ -100,7 +100,7 @@ Describe "Start|Stop-PSDetour" {
                 $this.Invoke($Milliseconds)
             }
         )
-        [PSDetourTest.Native]::Sleep(5)
+        [PSDetourTest.Native]::VoidWithArg(5)
         Stop-PSDetour
 
         $state.args | Should -Be 5
@@ -119,9 +119,9 @@ Describe "Start|Stop-PSDetour" {
 
         $state = @{}
         Start-PSDetour -Hook @(
-            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action ${Function:Invoke-MyHook}
+            New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action ${Function:Invoke-MyHook}
         )
-        [PSDetourTest.Native]::Sleep(5)
+        [PSDetourTest.Native]::VoidWithArg(5)
         Stop-PSDetour
 
         $state.args | Should -Be 5
@@ -131,7 +131,7 @@ Describe "Start|Stop-PSDetour" {
     It "Hooks a method in another non PowerShell thread" {
         $waitHandle = [System.Threading.AutoResetEvent]::new($false)
         try {
-            $sleepThread = [PSDetourTest.TestHelpers]::Sleep(5, $waitHandle)
+            $voidWithArgThread = [PSDetourTest.TestHelpers]::VoidWithArg(5, $waitHandle)
 
             $customState = [PSCustomObject]@{
                 Args = $null
@@ -139,7 +139,7 @@ Describe "Start|Stop-PSDetour" {
                 Type = $null
             }
             Start-PSDetour -State $customState -Hook @(
-                New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+                New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
                     param([int]$Milliseconds)
 
                     $this.State.Args = $Milliseconds
@@ -151,7 +151,7 @@ Describe "Start|Stop-PSDetour" {
             )
 
             $null = $waitHandle.Set()
-            $sleepThread.GetAwaiter().GetResult()
+            $voidWithArgThread.GetAwaiter().GetResult()
 
             Stop-PSDetour
 
@@ -167,11 +167,11 @@ Describe "Start|Stop-PSDetour" {
     It "Hooks a method in another non PowerShell thread with using" {
         $waitHandle = [System.Threading.AutoResetEvent]::new($false)
         try {
-            $sleepThread = [PSDetourTest.TestHelpers]::Sleep(5, $waitHandle)
+            $voidWithArgThread = [PSDetourTest.TestHelpers]::VoidWithArg(5, $waitHandle)
 
             $state = @{}
             Start-PSDetour -Hook @(
-                New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+                New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
                     param([int]$Milliseconds)
 
                     ($using:state)['args'] = $Milliseconds
@@ -182,7 +182,7 @@ Describe "Start|Stop-PSDetour" {
             )
 
             $null = $waitHandle.Set()
-            $sleepThread.GetAwaiter().GetResult()
+            $voidWithArgThread.GetAwaiter().GetResult()
 
             Stop-PSDetour
 
@@ -201,7 +201,7 @@ Describe "Start|Stop-PSDetour" {
             Type = $null
         }
         Start-PSDetour -State $customState -Hook @(
-            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action {
+            New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action {
                 param([int]$Milliseconds)
 
                 $this.State.Args = $Milliseconds
@@ -211,7 +211,7 @@ Describe "Start|Stop-PSDetour" {
                 $this.Invoke($Milliseconds)
             }
         )
-        [PSDetourTest.Native]::Sleep(5)
+        [PSDetourTest.Native]::VoidWithArg(5)
         Stop-PSDetour
 
         $customState.Args | Should -Be 5
@@ -515,9 +515,9 @@ Describe "Start|Stop-PSDetour" {
             $action.Ast.IsFilter).GetScriptBlock()
 
         Start-PSDetour -Hook @(
-            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action $newAction
+            New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action $newAction
         )
-        [PSDetourTest.Native]::Sleep(5)
+        [PSDetourTest.Native]::VoidWithArg(5)
         Stop-PSDetour
 
         $state.args | Should -Be 5
@@ -659,9 +659,9 @@ Describe "Start|Stop-PSDetour" {
             $action.Ast.IsFilter).GetScriptBlock()
 
         Start-PSDetour -Hook @(
-            New-PSDetourHook -DllName Kernel32.dll -MethodName Sleep -Action $newAction
+            New-PSDetourHook -DllName $exampleDllPath -MethodName VoidWithArg -Action $newAction
         )
-        [PSDetourTest.Native]::Sleep(5)
+        [PSDetourTest.Native]::VoidWithArg(5)
         Stop-PSDetour
 
         $state.args | Should -Be 5

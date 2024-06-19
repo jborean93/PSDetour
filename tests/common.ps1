@@ -5,7 +5,12 @@ if (-not (Get-Module -Name $moduleName -ErrorAction SilentlyContinue)) {
     Import-Module $manifestPath
 }
 
-Add-Type -TypeDefinition @'
+$global:exampleDllPath = [System.IO.Path]::GetFullPath([System.IO.Path]::Combine($PSScriptRoot, "NativeExamples", "bin", "NativeExamples.dll"))
+if (-not (Test-Path -LiteralPath $exampleDllPath)) {
+    throw "Failed to find NativeExamples dll at '$exampleDllPath'"
+}
+
+Add-Type -TypeDefinition @"
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -47,21 +52,21 @@ namespace PSDetourTest
             int dwAccess,
             out IntPtr hToken);
 
-        [DllImport("Kernel32.dll")]
-        public static extern void Sleep(int dwMilliSeconds);
+        [DllImport("$($exampleDllPath -replace '\\', '\\\\')")]
+        public static extern void VoidWithArg(int arg1);
     }
 
     public static class TestHelpers
     {
-        public static Task Sleep(int milliseconds, EventWaitHandle waitHandle)
+        public static Task VoidWithArg(int milliseconds, EventWaitHandle waitHandle)
         {
-            return Task.Run(() => SleepInAnotherThread(milliseconds, waitHandle));
+            return Task.Run(() => VoidWithArgAnotherThread(milliseconds, waitHandle));
         }
 
-        private static void SleepInAnotherThread(int milliseconds, EventWaitHandle waitHandle)
+        private static void VoidWithArgAnotherThread(int milliseconds, EventWaitHandle waitHandle)
         {
             waitHandle.WaitOne();
-            Native.Sleep(milliseconds);
+            Native.VoidWithArg(milliseconds);
         }
     }
 
@@ -227,4 +232,4 @@ namespace PSDetourTest
         }
     }
 }
-'@
+"@
