@@ -32,7 +32,7 @@ task AssertSMA {
 
 task AssertDetours {
     $AssertDetours = "$PSScriptRoot/tools/AssertDetours.ps1"
-    & $AssertDetours -RequiredVersion 4.0.1
+    & $AssertDetours -RequiredCommit 4b8c659f549b0ab21cf649377c7a84eb708f5e68
 }
 
 task BuildDocs {
@@ -44,31 +44,180 @@ task BuildDocs {
 }
 
 task BuildManaged {
-    Get-ChildItem -LiteralPath $CSharpPath -Directory | ForEach-Object -Process {
-        $_ | Push-Location
-        $arguments = @(
-            'publish'
-            '--configuration', $Configuration
-            '--verbosity', 'q'
-            '-nologo'
-            "-p:Version=$Version"
-        )
+    $modulePath = ([IO.Path]::Combine($CSharpPath, $ModuleName))
+    Push-Location -LiteralPath $modulePath
+    $arguments = @(
+        'publish'
+        '--configuration', $Configuration
+        '--verbosity', 'q'
+        '-nologo'
+        "-p:Version=$Version"
+    )
+    try {
+        [xml]$csharpProjectInfo = Get-Content ([IO.Path]::Combine($modulePath, '*.csproj'))
+        $targetFrameworks = @($csharpProjectInfo.Project.PropertyGroup[0].TargetFrameworks.Split(
+                ';', [StringSplitOptions]::RemoveEmptyEntries))
+
+        foreach ($framework in $targetFrameworks) {
+            Write-Host "Compiling $ModuleName for $framework"
+            dotnet @arguments --framework $framework
+
+            if ($LASTEXITCODE) {
+                throw "Failed to compiled code for $framework"
+            }
+        }
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+task BuildNative {
+    $vsWhereArgs = @(
+        '-latest'
+        '-property', 'resolvedInstallationPath'
+        '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.arm64', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+        '-utf8'
+    )
+    $origEncoding = [Console]::OutputEncoding
+    try {
+        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+        $installDir = &'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe' @vsWhereArgs
+    }
+    finally {
+        [Console]::OutputEncoding = $origEncoding
+    }
+    $vsDevCmd = [IO.Path]::Combine($installDir, "Common7", "Tools", "VsDevCmd.bat")
+
+    if (-not $installDir -or -not (Test-Path -LiteralPath $vsDevCmd)) {
+        throw "Failed to find VS install dir"
+    }
+
+    $detoursPath = [IO.Path]::GetFullPath([IO.Path]::Combine($PSScriptRoot, "output", "lib", "Detours"))
+    $detoursCodePath = [IO.Path]::Combine($detoursPath, "src")
+    $codePath = [IO.Path]::Combine($CSharpPath, "${ModuleName}Native")
+    $outPath = [IO.Path]::Combine($codePath, "bin")
+    if (Test-Path -LiteralPath $outPath) {
+        Remove-Item -LiteralPath $outPath -Force -Recurse
+    }
+    New-Item -Path $outPath -ItemType Directory | Out-Null
+
+    $sourceFiles = (Get-ChildItem -Path ([IO.Path]::Combine($codePath, "*.cpp"))).FullName
+    $incPaths = @(
+        '/I', [IO.Path]::Combine($codePath, 'include')
+        '/I', [IO.Path]::Combine($detoursPath, 'include')
+    )
+    $defPaths = @(Get-ChildItem -Path ([IO.Path]::Combine($codePath, "*.def")) | ForEach-Object { "/DEF:`"$($_.FullName)`"" })
+    $preprocessorDefines = @('/D', 'WINDOWS')
+    $compilerArgs = @('/EHa', '/Od', '/GS', '/sdl', '/Zi', '/std:c++17', '/LD')
+
+    $existingEnv = [Environment]::GetEnvironmentVariables('Process')
+    foreach ($arch in @('x64', 'arm64')) {
+        Write-Host "Getting compiler env vars for $arch"
+        $start = $false
+        $envVars = @{}
+        $out = cmd.exe /c $vsDevCmd "-arch=$arch" "-host_arch=$($env:PROCESSOR_ARCHITECTURE.ToLowerInvariant())" '&&' 'set' |
+            ForEach-Object {
+                if ($_ -and ($start -or -not $_.StartsWith('*'))) {
+                    $start = $true
+
+                    $key, $value = $_ -split '=', 2
+                    $envVars[$key] = $value
+                }
+            }
+        if ($LASTEXITCODE) {
+            throw "Failed to get compiler env vars for $arch"
+        }
+
+        foreach ($kvp in $envVars.GetEnumerator()) {
+            Set-Item -LiteralPath "env:\$($kvp.Key)" -Value $kvp.Value
+        }
         try {
-            [xml]$csharpProjectInfo = Get-Content ([IO.Path]::Combine($_.FullName, '*.csproj'))
-            $targetFrameworks = @($csharpProjectInfo.Project.PropertyGroup[0].TargetFrameworks.Split(
-                    ';', [StringSplitOptions]::RemoveEmptyEntries))
-
-            foreach ($framework in $targetFrameworks) {
-                Write-Host "Compiling $($_.Name) for $framework"
-                dotnet @arguments --framework $framework
-
+            Write-Host "Compiling Detours for $arch"
+            Push-Location -LiteralPath $detoursCodePath
+            try {
+                $env:DETOURS_TARGET_PROCESSOR = $arch.ToUpperInvariant()
+                nmake.exe
                 if ($LASTEXITCODE) {
-                    throw "Failed to compiled code for $framework"
+                    throw "Failed to compiled Detours for $arch"
+                }
+            }
+            finally {
+                $env:DETOURS_TARGET_PROCESSOR = ''
+                Pop-Location
+            }
+
+            $outArchPath = [IO.Path]::Combine($outPath, $arch)
+            New-Item -Path $outArchPath -ItemType Directory | Out-Null
+
+            $libPaths = @(
+                "/LIBPATH:`"$([IO.Path]::Combine($detoursPath, "lib.$($arch.ToUpperInvariant())"))`""
+            )
+            $arguments = @(
+                $sourceFiles
+                $incPaths
+                $preprocessorDefines
+                $compilerArgs
+                '/link'
+                $libPaths
+                $defPaths
+                'detours.lib'
+                '/ignore:4099'
+                "/out:`"$([IO.Path]::Combine($outArchPath, "${ModuleName}Native.dll"))`""
+            )
+
+            Write-Host "Compiling ${ModuleName}Native for $arch`n$arguments"
+            Push-Location -LiteralPath $outArchPath
+            try {
+                & {
+                    $PSNativeCommandArgumentPassing = 'Legacy'
+                    cl.exe @arguments
+                }
+                if ($LASTEXITCODE) {
+                    throw "Failed to compile ${ModuleName}Native for $arch"
+                }
+            }
+            finally {
+                Pop-Location
+            }
+
+            if ($arch -eq [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture) {
+                $examplesPath = [IO.Path]::Combine($PSScriptRoot, "tests", "NativeExamples")
+                $outExamplesPath = [IO.Path]::Combine($examplesPath, "bin")
+                if (-not (Test-Path -LiteralPath $outExamplesPath)) {
+                    New-Item -Path $outExamplesPath -Force -ItemType Directory | Out-Null
+                }
+
+                $sourceFiles = (Get-ChildItem -Path ([IO.Path]::Combine($examplesPath, "*.c"))).FullName
+                $defPaths = @(Get-ChildItem -Path ([IO.Path]::Combine($examplesPath, "*.def")) | ForEach-Object { "/DEF:`"$($_.FullName)`"" })
+                $arguments = @(
+                    $sourceFiles
+                    $compilerArgs
+                    '/link'
+                    $defPaths
+                    "/out:`"$([IO.Path]::Combine($outExamplesPath, "NativeExamples.dll"))`""
+                )
+
+                Write-Host "Compiling NativeExamples for $arch`n$arguments"
+                Push-Location -LiteralPath $outExamplesPath
+                try {
+                    & {
+                        $PSNativeCommandArgumentPassing = 'Legacy'
+                        cl.exe @arguments
+                    }
+                    if ($LASTEXITCODE) {
+                        throw "Failed to compile NativeExamples for $arch"
+                    }
+                }
+                finally {
+                    Pop-Location
                 }
             }
         }
         finally {
-            Pop-Location
+            foreach ($kvp in $existingEnv.GetEnumerator()) {
+                Set-Item -LiteralPath "env:\$($kvp.Key)" -Value $kvp.Value
+            }
         }
     }
 }
@@ -82,12 +231,14 @@ task CopyToRelease {
     }
     Copy-Item @copyParams
 
-    $nativeBuildFolder = [IO.Path]::Combine($CSharpPath, "$($ModuleName)Native", 'bin', $Configuration, 'final')
-    $nativeBinFolder = [IO.Path]::Combine($ReleasePath, 'bin', 'x64')
-    if (-not (Test-Path -LiteralPath $nativeBinFolder)) {
-        New-Item -Path $nativeBinFolder -ItemType Directory | Out-Null
+    $nativeBuildFolder = [IO.Path]::Combine($CSharpPath, "$($ModuleName)Native", 'bin')
+    Get-ChildItem -LiteralPath $nativeBuildFolder | ForEach-Object {
+        $nativeBinFolder = [IO.Path]::Combine($ReleasePath, 'bin', $_.Name)
+        if (-not (Test-Path -LiteralPath $nativeBinFolder)) {
+            New-Item -Path $nativeBinFolder -ItemType Directory | Out-Null
+        }
+        Copy-Item ([IO.Path]::Combine($_.FullName, '*.dll')) -Destination $nativeBinFolder
     }
-    Copy-Item ([IO.Path]::Combine($nativeBuildFolder, '*.dll')) -Destination $nativeBinFolder
 
     [xml]$csharpProjectInfo = Get-Content ([IO.Path]::Combine($CSharpPath, $ModuleName, '*.csproj'))
     $targetFrameworks = @($csharpProjectInfo.Project.PropertyGroup[0].TargetFrameworks.Split(
@@ -281,10 +432,10 @@ task DoInstall {
     Copy-Item -Path ([IO.Path]::Combine($ReleasePath, '*')) -Destination $installPath -Force -Recurse
 }
 
-task Build -Jobs Clean, AssertDetours, AssertSMA, BuildManaged, CopyToRelease, BuildDocs, Sign, Package
+task Build -Jobs Clean, AssertDetours, AssertSMA, BuildManaged, BuildNative, CopyToRelease, BuildDocs, Sign, Package
 
 # FIXME: Work out why we need the obj and bin folder for coverage to work
-task Test -Jobs AssertDetours, AssertSMA, BuildManaged, Analyze, DoUnitTest, DoTest
+task Test -Jobs AssertDetours, AssertSMA, BuildManaged, BuildNative, Analyze, DoUnitTest, DoTest
 task Install -Jobs DoInstall
 
 task . Build

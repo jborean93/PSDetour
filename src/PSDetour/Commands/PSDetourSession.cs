@@ -64,7 +64,7 @@ public class NewPSDetourSession : PSCmdlet
                     .AddParameter("Global", true);
                 ps.Invoke();
 
-#if PWSH72
+#if NET6_0
                 PSSession session = new((RemoteRunspace)rs);
 #else
                 PSSession session = PSSession.Create(

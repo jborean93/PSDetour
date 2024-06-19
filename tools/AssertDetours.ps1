@@ -4,12 +4,12 @@ using namespace System.Net
 [CmdletBinding()]
 param(
     [ValidateNotNullOrEmpty()]
-    [string] $RequiredVersion
+    [string] $RequiredCommit
 )
 end {
     $targetFolder = $PSCmdlet.GetUnresolvedProviderPathFromPSPath(
         "$PSScriptRoot/../output/lib")
-    $fileName = "Detours-$RequiredVersion.zip"
+    $fileName = "Detours-$RequiredCommit.zip"
 
     if (Test-Path $targetFolder\Detours) {
         return
@@ -24,7 +24,7 @@ end {
         & {
             $ProgressPreference = 'SilentlyContinue'
             [ServicePointManager]::SecurityProtocol = 'Tls12'
-            $downloadUri = "https://github.com/microsoft/Detours/archive/refs/tags/v$RequiredVersion.zip"
+            $downloadUri = "https://github.com/microsoft/Detours/archive/$RequiredCommit.zip"
             Invoke-WebRequest -UseBasicParsing -Uri $downloadUri -OutFile $targetFolder/$fileName
         }
     }
@@ -41,6 +41,6 @@ end {
         $global:ProgressPreference = $oldPreference
     }
 
-    Rename-Item -LiteralPath $targetFolder/Detours-$RequiredVersion -NewName Detours
+    Rename-Item -LiteralPath $targetFolder/Detours-$RequiredCommit -NewName Detours
     Remove-Item -LiteralPath $targetFolder/$fileName
 }
