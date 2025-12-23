@@ -25,11 +25,6 @@ task Clean {
     New-Item -ItemType Directory $ReleasePath | Out-Null
 }
 
-task AssertSMA {
-    $AssertSMA = "$PSScriptRoot/tools/AssertSMA.ps1"
-    & $AssertSMA -RequiredVersion 7.2.0
-}
-
 task AssertDetours {
     $AssertDetours = "$PSScriptRoot/tools/AssertDetours.ps1"
     & $AssertDetours -RequiredCommit 4b8c659f549b0ab21cf649377c7a84eb708f5e68
@@ -55,8 +50,10 @@ task BuildManaged {
     )
     try {
         [xml]$csharpProjectInfo = Get-Content ([IO.Path]::Combine($modulePath, '*.csproj'))
-        $targetFrameworks = @($csharpProjectInfo.Project.PropertyGroup[0].TargetFrameworks.Split(
-                ';', [StringSplitOptions]::RemoveEmptyEntries))
+        $targetFrameworks = @(
+             @($csharpProjectInfo.Project.PropertyGroup)[0].TargetFrameworks.Split(
+                ';', [StringSplitOptions]::RemoveEmptyEntries)
+        )
 
         foreach ($framework in $targetFrameworks) {
             Write-Host "Compiling $ModuleName for $framework"
@@ -241,7 +238,7 @@ task CopyToRelease {
     }
 
     [xml]$csharpProjectInfo = Get-Content ([IO.Path]::Combine($CSharpPath, $ModuleName, '*.csproj'))
-    $targetFrameworks = @($csharpProjectInfo.Project.PropertyGroup[0].TargetFrameworks.Split(
+    $targetFrameworks = @(@($csharpProjectInfo.Project.PropertyGroup)[0].TargetFrameworks.Split(
             ';', [StringSplitOptions]::RemoveEmptyEntries))
 
     foreach ($framework in $targetFrameworks) {
@@ -391,15 +388,8 @@ task DoTest {
     $unitCoveragePath = [IO.Path]::Combine($resultsPath, 'UnitCoverage.json')
     $targetArgs = '"' + ($arguments -join '" "') + '"'
 
-    if ($PSVersionTable.PSVersion.Major -eq 7 -and $PSVersionTable.PSVersion.Minor -eq 2) {
-        $pwshFramework = 'net6.0-windows'
-        $targetArgs = '"' + ($targetArgs -replace '"', '\"') + '"'
-        $watchFolder = '"{0}"' -f ([IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework))
-    }
-    else {
-        $pwshFramework = 'net7.0-windows'
-        $watchFolder = [IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework)
-    }
+    $pwshFramework = 'net8.0-windows'
+    $watchFolder = [IO.Path]::Combine($ReleasePath, 'bin', $pwshFramework)
 
     $arguments = @(
         $watchFolder
@@ -432,10 +422,10 @@ task DoInstall {
     Copy-Item -Path ([IO.Path]::Combine($ReleasePath, '*')) -Destination $installPath -Force -Recurse
 }
 
-task Build -Jobs Clean, AssertDetours, AssertSMA, BuildManaged, BuildNative, CopyToRelease, BuildDocs, Sign, Package
+task Build -Jobs Clean, AssertDetours, BuildManaged, BuildNative, CopyToRelease, BuildDocs, Sign, Package
 
 # FIXME: Work out why we need the obj and bin folder for coverage to work
-task Test -Jobs AssertDetours, AssertSMA, BuildManaged, BuildNative, Analyze, DoUnitTest, DoTest
+task Test -Jobs AssertDetours, BuildManaged, BuildNative, Analyze, DoUnitTest, DoTest
 task Install -Jobs DoInstall
 
 task . Build

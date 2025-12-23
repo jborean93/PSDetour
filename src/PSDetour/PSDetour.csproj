@@ -1,27 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net6.0-windows;net7.0-windows</TargetFrameworks>
+    <TargetFrameworks>net8.0-windows</TargetFrameworks>
     <AssemblyName>PSDetour</AssemblyName>
-    <LangVersion>10.0</LangVersion>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
-  <PropertyGroup Condition=" '$(TargetFramework)' == 'net6.0-windows' ">
-    <InternalsAssemblyNames>System.Management.Automation</InternalsAssemblyNames>
-  </PropertyGroup>
-
   <ItemGroup>
     <PackageReference Include="System.Reflection.Emit" Version="4.7.0" PrivateAssets="all" />
-  </ItemGroup>
-
-  <ItemGroup Condition=" '$(TargetFramework)' != 'net6.0-windows' ">
-    <PackageReference Include="System.Management.Automation" Version="7.3.0" PrivateAssets="all" />
-  </ItemGroup>
-
-  <ItemGroup Condition=" '$(TargetFramework)' == 'net6.0-windows' ">
-    <PackageReference Include="IgnoresAccessChecksToGenerator" Version="0.5.0" PrivateAssets="all" />
-    <Reference Include="../../output/lib/System.Management.Automation/7.2.0/System.Management.Automation.dll" PrivateAssets="all" />
+    <PackageReference Include="System.Management.Automation" Version="7.4.0" PrivateAssets="all" />
   </ItemGroup>
 </Project>

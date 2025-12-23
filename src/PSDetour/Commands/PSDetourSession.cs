@@ -64,14 +64,10 @@ public class NewPSDetourSession : PSCmdlet
                     .AddParameter("Global", true);
                 ps.Invoke();
 
-#if NET6_0
-                PSSession session = new((RemoteRunspace)rs);
-#else
                 PSSession session = PSSession.Create(
                     runspace: rs,
                     transportName: "PSDetour",
                     psCmdlet: this);
-#endif
                 WriteObject(session);
             }
         }
