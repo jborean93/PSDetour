@@ -1,5 +1,3 @@
-#if !NET6_0
-// Not needed for net6/pwsh7.2 as it references this in another library
 namespace System.Runtime.CompilerServices
 {
     [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
@@ -13,4 +11,3 @@ namespace System.Runtime.CompilerServices
         public string AssemblyName { get; }
     }
 }
-#endif

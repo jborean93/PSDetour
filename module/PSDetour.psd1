@@ -11,7 +11,7 @@
 @{
 
     # Script module or binary module file associated with this manifest.
-    RootModule        = 'PSDetour.psm1'
+    RootModule        = 'bin/net8.0-windows/PSDetour.dll'
 
     # Version number of this module.
     ModuleVersion     = '0.5.0'
@@ -35,7 +35,7 @@
     Description       = 'Hook Win32 APIs in PowerShell.`nSee https://github.com/jborean93/PSDetour for more info'
 
     # Minimum version of the PowerShell engine required by this module
-    PowerShellVersion = '7.2'
+    PowerShellVersion = '7.4'
 
     # Minimum version of Microsoft .NET Framework required by this module. This prerequisite is valid for the PowerShell Desktop edition only.
     # DotNetFrameworkVersion = '6.0'

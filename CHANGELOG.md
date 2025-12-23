@@ -2,6 +2,7 @@
 
 ## v0.5.0 - TBD
 
+* Updated minimum PowerShell version to 7.4
 * Update detours to the latest commit which includes fixes not present in the last tagged build
 * Add `arm64` build
 * Add various improvements around error handling and concurrent calling of hooks

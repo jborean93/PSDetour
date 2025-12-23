@@ -20,7 +20,7 @@ Currently it can only target x64 based processes on Windows.
 
 These cmdlets have the following requirements
 
-* PowerShell v7.2 or newer
+* PowerShell v7.4 or newer
 * Windows Server 2008 R2/Windows 7 or newer
 
 ## Installing
