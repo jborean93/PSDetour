@@ -35,15 +35,13 @@ jobs:
         tenant-id: ${{ secrets.AZURE_TENANT_ID }}
         subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-    - name: Build module - Release
-      if: ${{ env.BUILD_CONFIGURATION == 'Release' }}
+    - name: Build module
       shell: pwsh
       run: ./build.ps1 -Configuration $env:BUILD_CONFIGURATION -Task Build
-
-    - name: Build module - Debug
-      shell: pwsh
-      run: ./build.ps1 -Configuration $env:BUILD_CONFIGURATION -Task Build
-      if: ${{ env.BUILD_CONFIGURATION == 'Debug' }}
+      env:
+        AZURE_TS_NAME: ${{ env.BUILD_CONFIGURATION == 'Release' && secrets.AZURE_TS_NAME || '' }}
+        AZURE_TS_PROFILE: ${{ env.BUILD_CONFIGURATION == 'Release' && secrets.AZURE_TS_PROFILE || '' }}
+        AZURE_TS_ENDPOINT: ${{ env.BUILD_CONFIGURATION == 'Release' && secrets.AZURE_TS_ENDPOINT || '' }}
 
     - name: Capture PowerShell Module
       uses: actions/upload-artifact@v6
@@ -74,32 +72,16 @@ jobs:
         name: PSModule
         path: output
 
-    - name: Install PowerShell
-      shell: pwsh
-      run: |
-        tools/AssertPwsh.ps1 -RequiredVersion '${{ matrix.info.psversion }}'
-
-    - name: Install Built PowerShell Module
-      shell: pwsh
-      run: |
-        $manifestItem = Get-Item ([IO.Path]::Combine('module', '*.psd1'))
-        $moduleName = $manifestItem.BaseName
-        $manifest = Test-ModuleManifest -Path $manifestItem.FullName -ErrorAction SilentlyContinue -WarningAction Ignore
-
-        $destPath = [IO.Path]::Combine('output', $moduleName, $manifest.Version)
-        if (-not (Test-Path -LiteralPath $destPath)) {
-            New-Item -Path $destPath -ItemType Directory | Out-Null
-        }
-
-        # WinPS doesn't support extracting from anything without a .zip extension so we need to rename it
-        Get-ChildItem output/*.nupkg | Rename-Item -NewName { $_.Name -replace '.nupkg', '.zip' }
-
-        Expand-Archive -Path output/*.zip -DestinationPath $destPath -Force -ErrorAction Stop
-
     - name: Run Tests
       shell: pwsh
       run: |
-        & "output/pwsh-${{ matrix.info.psversion }}/pwsh.exe" -NoProfile -File ./build.ps1 -Configuration $env:BUILD_CONFIGURATION -Task Test
+        $buildParams = @{
+            Configuration = $env:BUILD_CONFIGURATION
+            Task = 'Test'
+            PowerShellVersion = '${{ matrix.info.psversion }}'
+            ModuleNupkg = 'output/*.nupkg'
+        }
+        ./build.ps1 @buildParams
         exit $LASTEXITCODE
 
     - name: Upload Test Results
