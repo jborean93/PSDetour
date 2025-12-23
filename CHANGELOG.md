@@ -1,6 +1,6 @@
 # Changelog for PSDetour
 
-## v0.5.0 - TBD
+## v0.5.0 - 2025-12-23
 
 * Updated minimum PowerShell version to 7.4
 * Update detours to the latest commit which includes fixes not present in the last tagged build
