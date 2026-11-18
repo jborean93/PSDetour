@@ -54,6 +54,12 @@ namespace PSDetourTest
 
         [DllImport("$($exampleDllPath -replace '\\', '\\\\')")]
         public static extern void VoidWithArg(int arg1);
+
+        [DllImport("$($exampleDllPath -replace '\\', '\\\\')", SetLastError = true)]
+        public static extern int SetLastErrorWithValue(int errorCode);
+
+        [DllImport("Kernel32.dll", EntryPoint = "SetLastError")]
+        public static extern void SetThreadLastError(int errorCode);
     }
 
     public static class TestHelpers

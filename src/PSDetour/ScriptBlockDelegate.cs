@@ -398,7 +398,7 @@ internal class ScriptBlockDelegate
             {
                 res = func(...);
             }
-            Marshal.SetLastPInvokeError(GetLastError());
+            SetInvokeLastError(Marshal.GetLastSystemError());
 
             return res;
         }
@@ -462,8 +462,11 @@ internal class ScriptBlockDelegate
             il.Emit(OpCodes.Stloc, retVar);
         }
 
-        il.Emit(OpCodes.Call, ReflectionInfo.SbkGetLastErrorFunc);
-        il.Emit(OpCodes.Call, ReflectionInfo.SetLastPInvokeErrorFunc);
+        // Capture the error code straight after the call before anything
+        // else can change it and store it on the context.
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, ReflectionInfo.GetLastSystemErrorFunc);
+        il.Emit(OpCodes.Call, ReflectionInfo.SbkSetInvokeLastErrorFunc);
 
         il.MarkLabel(returnLabel);
         if (retVar != null)
@@ -526,44 +529,151 @@ public class ScriptBlockInvokeContext: InvokeContext
     // The Invoke method is generated dynamically on the subclasses that inherit this
     // public T Invoke(...);
 
-    [DllImport("Kernel32.dll")]
-    internal static extern int GetLastError();
+    private readonly ThreadLocal<int> _lastError = new(() => 0);
+
+    /// <summary>
+    /// The Win32 error code that will be set on the thread when the hook
+    /// returns back to the caller. It starts as the value present when the
+    /// hook was called, is updated after each call to <c>Invoke</c>, and can
+    /// be manually changed through <c>SetLastError</c>. The value is tracked
+    /// per thread as the same hook can run on multiple threads at once.
+    /// </summary>
+    public int LastError => TryGetLastError(out int errorCode) ? errorCode : 0;
+
+    /// <summary>Sets the Win32 error code to set when the hook returns.</summary>
+    /// <param name="errorCode">The error code to set.</param>
+    public void SetLastError(int errorCode)
+    {
+        TrySetLastError(errorCode);
+    }
+
+    /// <summary>
+    /// Called by the generated Invoke method after calling the original
+    /// function with the Win32 error code it set.
+    /// </summary>
+    /// <param name="errorCode">The error code set by the original function.</param>
+    internal void SetInvokeLastError(int errorCode)
+    {
+        TrySetLastError(errorCode);
+
+        // Keeps [Marshal]::GetLastPInvokeError() working for existing hooks.
+        Marshal.SetLastPInvokeError(errorCode);
+    }
+
+    internal override void Dispose()
+    {
+        _lastError.Dispose();
+    }
+
+    // The hooks are disposed when PSDetour is stopped but a thread could
+    // still be running a hook at that point. An exception raised back to
+    // native code would crash the process so these fail gracefully and the
+    // callers fall back to another value.
+
+    private bool TryGetLastError(out int errorCode)
+    {
+        try
+        {
+            errorCode = _lastError.Value;
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            errorCode = 0;
+            return false;
+        }
+    }
+
+    private void TrySetLastError(int errorCode)
+    {
+        try
+        {
+            _lastError.Value = errorCode;
+        }
+        catch (ObjectDisposedException)
+        { }
+    }
 
     internal static void WrapInvokeVoid(ScriptBlockInvokeContext invokeContext, object[] args)
     {
-        MethodInfo invokeMethod = invokeContext.GetType().GetMethod("Invoke",
-            args.Select(a => a.GetType()).ToArray())!;
-
         if (InInvoke.Value)
         {
-            invokeMethod.Invoke(invokeContext, args);
+            InvokeOriginal(invokeContext, args);
+            return;
         }
-        else
-        {
-            InvokeInRunspace(invokeContext, args);
-        }
+
+        int entryError = RunHook(invokeContext, args, out _);
+
+        // Must be the last thing done before returning to the caller so
+        // nothing else can change the error code.
+        Marshal.SetLastSystemError(invokeContext.TryGetLastError(out int errorCode) ? errorCode : entryError);
     }
 
     internal static T? WrapInvoke<T>(ScriptBlockInvokeContext invokeContext, object[] args)
     {
+        if (InInvoke.Value)
+        {
+            return (T?)InvokeOriginal(invokeContext, args);
+        }
+
+        T? result = default;
+        int entryError = RunHook(invokeContext, args, out Collection<PSObject> res);
+        if (res.Count > 0 && res[res.Count - 1].BaseObject is T castedRes)
+        {
+            result = castedRes;
+        }
+
+        // Must be the last thing done before returning to the caller so
+        // nothing else can change the error code.
+        Marshal.SetLastSystemError(invokeContext.TryGetLastError(out int errorCode) ? errorCode : entryError);
+        return result;
+    }
+
+    /// <summary>
+    /// Calls the original function directly, used when the hook is called
+    /// while a hook is already running on this thread. The context's
+    /// LastError is preserved in case its own scriptblock is running further
+    /// up the stack, while the original function's error code is still
+    /// propagated back to the caller.
+    /// </summary>
+    private static object? InvokeOriginal(ScriptBlockInvokeContext invokeContext, object[] args)
+    {
         MethodInfo invokeMethod = invokeContext.GetType().GetMethod("Invoke",
             args.Select(a => a.GetType()).ToArray())!;
 
-        if (InInvoke.Value)
+        invokeContext.TryGetLastError(out int previousError);
+        int errorCode;
+        object? res;
+        try
         {
-            return (T?)invokeMethod.Invoke(invokeContext, args);
+            res = invokeMethod.Invoke(invokeContext, args);
         }
-
-        Collection<PSObject> res = InvokeInRunspace(invokeContext, args);
-        if (res.Count > 0)
+        finally
         {
-            if (res[res.Count - 1].BaseObject is T castedRes)
+            // If disposed, fall back to the PInvoke error which the
+            // generated Invoke method also sets.
+            if (!invokeContext.TryGetLastError(out errorCode))
             {
-                return castedRes;
+                errorCode = Marshal.GetLastPInvokeError();
             }
+            invokeContext.TrySetLastError(previousError);
         }
 
-        return default;
+        Marshal.SetLastSystemError(errorCode);
+        return res;
+    }
+
+    /// <summary>Runs the hook scriptblock.</summary>
+    /// <returns>The error code present when the hook was called.</returns>
+    private static int RunHook(ScriptBlockInvokeContext invokeContext, object[] args,
+        out Collection<PSObject> output)
+    {
+        // Default to the error code present when the hook was called so a
+        // hook that never calls Invoke or SetLastError won't change it.
+        int entryError = Marshal.GetLastSystemError();
+        invokeContext.TrySetLastError(entryError);
+        output = InvokeInRunspace(invokeContext, args);
+        return entryError;
     }
 
     internal static Collection<PSObject> InvokeInRunspace(ScriptBlockInvokeContext invokeContext, object[] args)

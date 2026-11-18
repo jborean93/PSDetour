@@ -1,3 +1,4 @@
 LIBRARY
 EXPORTS
 	VoidWithArg
+	SetLastErrorWithValue

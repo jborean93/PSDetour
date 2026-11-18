@@ -1,5 +1,11 @@
 # Changelog for PSDetour
 
+## v0.5.1 - TBD
+
+* Preserve the Win32 last error code set by `$this.Invoke(...)` when the hook returns to the caller
+* Add `$this.LastError` to retrieve the Win32 last error code set by `$this.Invoke(...)` in the hook
+* Add `$this.SetLastError(...)` to set the Win32 last error code that is set when the hook returns
+
 ## v0.5.0 - 2025-12-23
 
 * Updated minimum PowerShell version to 7.4
