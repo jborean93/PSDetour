@@ -667,4 +667,122 @@ Describe "Start|Stop-PSDetour" {
         $state.args | Should -Be 5
         $state.rpid | Should -Not -Be ([Runspace]::DefaultRunspace.Id)
     }
+
+    It "Propagates the last error from Invoke" {
+        $state = @{}
+        Start-PSDetour -Hook @(
+            New-PSDetourHook -DllName $exampleDllPath -MethodName SetLastErrorWithValue -Action {
+                [OutputType([int])]
+                param([int]$ErrorCode)
+
+                $res = $this.Invoke($ErrorCode)
+                ($using:state)['LastError'] = $this.LastError
+
+                # Simulates PowerShell changing the thread's last error.
+                [PSDetourTest.Native]::SetThreadLastError(1)
+
+                $res
+            }
+        )
+        $actual = [PSDetourTest.Native]::SetLastErrorWithValue(5)
+        $actualError = [System.Runtime.InteropServices.Marshal]::GetLastPInvokeError()
+        Stop-PSDetour
+
+        $actual | Should -Be 5
+        $actualError | Should -Be 5
+        $state.LastError | Should -Be 5
+    }
+
+    It "Overrides the last error from Invoke with SetLastError" {
+        $state = @{}
+        Start-PSDetour -Hook @(
+            New-PSDetourHook -DllName $exampleDllPath -MethodName SetLastErrorWithValue -Action {
+                [OutputType([int])]
+                param([int]$ErrorCode)
+
+                $res = $this.Invoke($ErrorCode)
+                ($using:state)['LastError'] = $this.LastError
+                $this.SetLastError(10)
+                ($using:state)['NewLastError'] = $this.LastError
+
+                $res
+            }
+        )
+        $actual = [PSDetourTest.Native]::SetLastErrorWithValue(5)
+        $actualError = [System.Runtime.InteropServices.Marshal]::GetLastPInvokeError()
+        Stop-PSDetour
+
+        $actual | Should -Be 5
+        $actualError | Should -Be 10
+        $state.LastError | Should -Be 5
+        $state.NewLastError | Should -Be 10
+    }
+
+    It "Sets the last error without calling Invoke" {
+        Start-PSDetour -Hook @(
+            New-PSDetourHook -DllName $exampleDllPath -MethodName SetLastErrorWithValue -Action {
+                [OutputType([int])]
+                param([int]$ErrorCode)
+
+                $this.SetLastError(1234)
+                0
+            }
+        )
+        $actual = [PSDetourTest.Native]::SetLastErrorWithValue(5)
+        $actualError = [System.Runtime.InteropServices.Marshal]::GetLastPInvokeError()
+        Stop-PSDetour
+
+        $actual | Should -Be 0
+        $actualError | Should -Be 1234
+    }
+
+    It "Preserves the last error if Invoke and SetLastError are not called" {
+        Start-PSDetour -Hook @(
+            New-PSDetourHook -DllName $exampleDllPath -MethodName SetLastErrorWithValue -Action {
+                [OutputType([int])]
+                param([int]$ErrorCode)
+
+                [PSDetourTest.Native]::SetThreadLastError(1)
+                0
+            }
+        )
+        # The SetLastError = true P/Invoke clears the error before calling.
+        $actual = [PSDetourTest.Native]::SetLastErrorWithValue(5)
+        $actualError = [System.Runtime.InteropServices.Marshal]::GetLastPInvokeError()
+        Stop-PSDetour
+
+        $actual | Should -Be 0
+        $actualError | Should -Be 0
+    }
+
+    It "Handles the hook being disposed while it is running" {
+        $state = @{}
+        Start-PSDetour -Hook @(
+            New-PSDetourHook -DllName $exampleDllPath -MethodName SetLastErrorWithValue -Action {
+                [OutputType([int])]
+                param([int]$ErrorCode)
+
+                $res = $this.Invoke($ErrorCode)
+
+                # Disposes this hook's context while it is still running.
+                [PSDetour.Hook]::Stop()
+                $this.SetLastError(10)
+                ($using:state)['LastError'] = $this.LastError
+
+                $res
+            }
+        )
+        try {
+            $actual = [PSDetourTest.Native]::SetLastErrorWithValue(5)
+            $actualError = [System.Runtime.InteropServices.Marshal]::GetLastPInvokeError()
+        }
+        finally {
+            Stop-PSDetour
+        }
+
+        $actual | Should -Be 5
+        # Falls back to the error code present when the hook was called.
+        $actualError | Should -Be 0
+        $state.LastError | Should -Be 0
+    }
 }

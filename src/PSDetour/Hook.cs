@@ -117,6 +117,14 @@ public class InvokeContext
         DetouredModules = detouredModules;
         OriginalMethod = originalMethod;
     }
+
+    /// <summary>Frees any resources used by the context.</summary>
+    /// <remarks>
+    /// This is not exposed through IDisposable to avoid hooks calling
+    /// <c>$this.Dispose()</c>.
+    /// </remarks>
+    internal virtual void Dispose()
+    { }
 }
 
 internal sealed class RunningHook : IDisposable
@@ -175,13 +183,23 @@ internal sealed class RunningHook : IDisposable
 
     public void Dispose()
     {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    private void Dispose(bool disposing)
+    {
         if (_isAttached)
         {
             Detour.DetourDetach(OriginalMethod.AddrOfPinnedObject(), DetourMethod);
             _isAttached = false;
         }
         OriginalMethod.Free();
-        GC.SuppressFinalize(this);
+
+        if (disposing)
+        {
+            InvokeContext.Dispose();
+        }
     }
-    ~RunningHook() => Dispose();
+    ~RunningHook() => Dispose(false);
 }

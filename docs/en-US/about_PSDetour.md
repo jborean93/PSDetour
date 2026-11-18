@@ -32,7 +32,7 @@ The key components of a scriptblock that is used a hook are:
 
 * `[OutputType]` - to denote the return type of the function to hook
 * `param(...)` - all the arguments/parameters and their types of the function to hook
-* `$this` - a special variable that contains metadata about the hook, currently only the `Invoke` method, `State` property, and `DetouredModules` property are implemented.
+* `$this` - a special variable that contains metadata about the hook, currently only the `Invoke` and `SetLastError` methods, and the `State`, `DetouredModules`, and `LastError` properties are implemented.
 * `$using:...` - injects the variable named by `...` into the running action hook
 
 An example of a hook that just logs the input parameters and return values would look like:
@@ -159,3 +159,56 @@ $hooks | Start-PSDetour
 
 Stop-PSDetour
 ```
+
+## Last Win32 Error
+Many Win32 APIs set the thread's last error code, retrieved by `GetLastError()`, to provide more information on why the call failed.
+Running PowerShell inside the hook will most likely change this value, so PSDetour tracks the error code that is set on the thread when the hook returns to the caller.
+This error code is exposed through the `$this.LastError` property and is set in the following ways:
+
+* When the hook is called, it is set to the error code present on the thread at that time
+* After `$this.Invoke(...)` is called, it is set to the error code set by the original function
+* When `$this.SetLastError(...)` is called, it is set to the value provided
+
+When the hook finishes, the value of `$this.LastError` is set as the thread's last error code so the caller sees it as if the hook was never present.
+The `$this.LastError` property should be used instead of calling `[System.Runtime.InteropServices.Marshal]::GetLastWin32Error()` or `GetLastError()` in the hook, as the value retrieved by those calls could have been changed by PowerShell.
+
+```powershell
+New-PSDetourHook -DllName Kernel32.dll -MethodName CreateDirectoryW -Action {
+    [OutputType([bool])]
+    param (
+        [System.Runtime.InteropServices.MarshalAs([System.Runtime.InteropServices.UnmanagedType]::LPWStr)]
+        [string]$PathName,
+        [IntPtr]$SecurityAttributes
+    )
+
+    $res = $this.Invoke($PathName, $SecurityAttributes)
+    if (-not $res) {
+        $msg = [System.ComponentModel.Win32Exception]::new($this.LastError).Message
+        Write-Host "CreateDirectoryW($PathName) failed: $msg"
+    }
+
+    $res
+}
+```
+
+The `$this.SetLastError(...)` method can be used to change the error code set when the hook returns, for example when the hook returns a failure without calling `$this.Invoke(...)`.
+
+```powershell
+New-PSDetourHook -DllName Kernel32.dll -MethodName CreateDirectoryW -Action {
+    [OutputType([bool])]
+    param (
+        [System.Runtime.InteropServices.MarshalAs([System.Runtime.InteropServices.UnmanagedType]::LPWStr)]
+        [string]$PathName,
+        [IntPtr]$SecurityAttributes
+    )
+
+    if ($PathName -like 'C:\Windows\*') {
+        $this.SetLastError(5)  # ERROR_ACCESS_DENIED
+        return $false
+    }
+
+    $this.Invoke($PathName, $SecurityAttributes)
+}
+```
+
+The `LastError` value is tracked per thread, and calling `Invoke(...)` on another hook through `$this.DetouredModules` will update the `LastError` on that hook's object rather than `$this`.

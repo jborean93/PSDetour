@@ -26,11 +26,11 @@ internal static class ReflectionInfo
     private static MethodInfo? _getOriginalMethodFunc = null;
     private static MethodInfo? _informationRecordFromPSObject = null;
     private static MethodInfo? _runServerModeFunc = null;
-    private static MethodInfo? _sbkGetLastErrorFunc = null;
+    private static MethodInfo? _getLastSystemErrorFunc = null;
+    private static MethodInfo? _sbkSetInvokeLastErrorFunc = null;
     private static MethodInfo? _sbkToPwshConverterType = null;
     private static MethodInfo? _sbkWrapInvokeFunc = null;
     private static MethodInfo? _sbkWrapInvokeVoidFunc = null;
-    private static MethodInfo? _setLastPInvokeErrorFunc = null;
 
     public static ModuleBuilder Module
     {
@@ -254,19 +254,19 @@ internal static class ReflectionInfo
         }
     }
 
-    public static MethodInfo SbkGetLastErrorFunc
+    public static MethodInfo SbkSetInvokeLastErrorFunc
     {
         get
         {
-            if (_sbkGetLastErrorFunc == null)
+            if (_sbkSetInvokeLastErrorFunc == null)
             {
-                _sbkGetLastErrorFunc = typeof(ScriptBlockInvokeContext).GetMethod(
-                    nameof(ScriptBlockInvokeContext.GetLastError),
-                    BindingFlags.Static | BindingFlags.NonPublic,
-                    Array.Empty<Type>())!;
+                _sbkSetInvokeLastErrorFunc = typeof(ScriptBlockInvokeContext).GetMethod(
+                    nameof(ScriptBlockInvokeContext.SetInvokeLastError),
+                    BindingFlags.Instance | BindingFlags.NonPublic,
+                    new[] { typeof(int) })!;
             }
 
-            return _sbkGetLastErrorFunc;
+            return _sbkSetInvokeLastErrorFunc;
         }
     }
 
@@ -323,19 +323,19 @@ internal static class ReflectionInfo
         }
     }
 
-    public static MethodInfo SetLastPInvokeErrorFunc
+    public static MethodInfo GetLastSystemErrorFunc
     {
         get
         {
-            if (_setLastPInvokeErrorFunc == null)
+            if (_getLastSystemErrorFunc == null)
             {
-                _setLastPInvokeErrorFunc = typeof(Marshal).GetMethod(
-                    "SetLastPInvokeError",
+                _getLastSystemErrorFunc = typeof(Marshal).GetMethod(
+                    nameof(Marshal.GetLastSystemError),
                     BindingFlags.Static | BindingFlags.Public,
-                    new[] { typeof(int) })!;
+                    Array.Empty<Type>())!;
             }
 
-            return _setLastPInvokeErrorFunc;
+            return _getLastSystemErrorFunc;
         }
     }
 }
