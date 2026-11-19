@@ -8,7 +8,7 @@ namespace PSDetour.Commands;
 [OutputType(typeof(void))]
 public class StartPSDetour : PSCmdlet
 {
-    private List<DetourHook> _hooks = new();
+    private readonly List<DetourHook> _hooks = new();
 
     [Parameter(
         Mandatory = true,

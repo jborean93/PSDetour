@@ -1,6 +1,6 @@
 # Changelog for PSDetour
 
-## v0.5.1 - TBD
+## v0.6.0 - 2026-11-19
 
 * Preserve the Win32 last error code set by `$this.Invoke(...)` when the hook returns to the caller
 * Add `$this.LastError` to retrieve the Win32 last error code set by `$this.Invoke(...)` in the hook

@@ -1,8 +1,8 @@
-using Microsoft.Win32.SafeHandles;
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
+using Microsoft.Win32.SafeHandles;
 
 namespace PSDetour.Native;
 
@@ -32,7 +32,7 @@ internal partial class NativeHelpers
 internal static class Advapi32
 {
     [DllImport("Advapi32.dll", SetLastError = true)]
-    private unsafe static extern bool GetTokenInformation(
+    private static extern unsafe bool GetTokenInformation(
         SafeAccessTokenHandle TokenHandle,
         TokenInformationClass TokenInformationClass,
         void* TokenInformation,

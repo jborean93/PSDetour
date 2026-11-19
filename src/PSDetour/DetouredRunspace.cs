@@ -13,7 +13,7 @@ namespace PSDetour;
 internal sealed class DetouredRunspace
 {
     private ManualResetEvent? _openEvent = null;
-    private Runspace _runspace;
+    private readonly Runspace _runspace;
 
     private DetouredRunspace(Runspace runspace)
     {
@@ -66,7 +66,7 @@ internal sealed class DetouredRunspace
         Process process,
         PSPrimitiveDictionary? applicationArguments = null,
         PSHost? host = null,
-        string? name =  null,
+        string? name = null,
         int timeoutMs = 5000,
         CancellationToken? cancelToken = null
     )

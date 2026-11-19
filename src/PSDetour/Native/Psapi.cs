@@ -1,7 +1,7 @@
-using Microsoft.Win32.SafeHandles;
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace PSDetour.Native;
 
@@ -18,10 +18,10 @@ internal static class Psapi
     public static IntPtr[] EnumProcessModulesEx(SafeProcessHandle process, EnumProcessModulesFilterFlag filterFlag)
     {
         IntPtr[] modules = Array.Empty<IntPtr>();
-        int needed = 0;
         while (true)
         {
             int size = modules.Length * IntPtr.Size;
+            int needed;
             if (!NativeEnumProcessModulesEx(process, modules, size, out needed, filterFlag))
             {
                 throw new Win32Exception();

@@ -1,5 +1,3 @@
-using Microsoft.Win32.SafeHandles;
-using PSDetour.Native;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -13,6 +11,8 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
+using PSDetour.Native;
 
 namespace PSDetour.Commands;
 
@@ -20,8 +20,8 @@ namespace PSDetour.Commands;
 public sealed class TracePSDetourProcessCommand : PSCmdlet
 {
     private CancellationTokenSource? _cancelToken;
-    private List<Dictionary<string, object>> _hooks = new();
-    private List<PSObject> _parsedFunctions = new();
+    private readonly List<Dictionary<string, object>> _hooks = new();
+    private readonly List<PSObject> _parsedFunctions = new();
 
     [Parameter(
         Mandatory = true,
@@ -285,7 +285,7 @@ $state = [PSDetour.Commands.TraceState]::new($reader, $writer, $FunctionsToDefin
         bool doCleanup = true;
         try
         {
-            while (cancelToken.IsCancellationRequested != true)
+            while (!cancelToken.IsCancellationRequested)
             {
                 // It will be disposed outside the function.
                 using StreamWriter writer = new(writePipe, new UTF8Encoding(), -1, true);
@@ -372,7 +372,7 @@ $state = [PSDetour.Commands.TraceState]::new($reader, $writer, $FunctionsToDefin
                 Host?.UI?.WriteLine(data);
                 break;
             case PipeMessageType.ReadLine:
-                string? response = null;
+                string? response;
                 try
                 {
                     response = Host?.UI?.ReadLine();
@@ -447,11 +447,11 @@ internal enum PipeMessageType
 
 public sealed class TraceState : IDisposable
 {
-    private Encoding _utf8 = new UTF8Encoding();
-    private StreamReader _reader;
-    private AnonymousPipeClientStream _writer;
-    private List<Dictionary<string, object?>> _functions = new();
-    private SemaphoreSlim _lock = new(1);
+    private readonly Encoding _utf8 = new UTF8Encoding();
+    private readonly StreamReader _reader;
+    private readonly AnonymousPipeClientStream _writer;
+    private readonly List<Dictionary<string, object?>> _functions = new();
+    private readonly SemaphoreSlim _lock = new(1);
 
     public TraceState(AnonymousPipeClientStream reader, AnonymousPipeClientStream writer, PSObject[]? functions)
     {

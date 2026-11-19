@@ -7,12 +7,12 @@ namespace PSDetour;
 
 internal static class AstHelper
 {
-    private static ScriptExtent _blankExtent = new(new(null, 0, 0, null), new(null, 0, 0, null));
+    private static readonly ScriptExtent s_blankExtent = new(new(null, 0, 0, null), new(null, 0, 0, null));
 
     public static HashtableAst CreateHashtableAst(IDictionary<string, object?> value)
     {
         return new(
-            _blankExtent,
+            s_blankExtent,
             value.Select(kvp => CreateKeyValuePairAst(kvp))
         );
     }
@@ -20,7 +20,7 @@ internal static class AstHelper
     public static Tuple<ExpressionAst, StatementAst> CreateKeyValuePairAst(KeyValuePair<string, object?> kvp)
     {
         return new(
-            new StringConstantExpressionAst(_blankExtent, kvp.Key, StringConstantType.BareWord),
+            new StringConstantExpressionAst(s_blankExtent, kvp.Key, StringConstantType.BareWord),
             CreateSingleExpressionPipeline(kvp.Value)
         );
     }
@@ -30,11 +30,11 @@ internal static class AstHelper
         ExpressionAst exp;
         if (value == null)
         {
-            exp = new VariableExpressionAst(_blankExtent, "null", false);
+            exp = new VariableExpressionAst(s_blankExtent, "null", false);
         }
         else if (value is int)
         {
-            exp = new ConstantExpressionAst(_blankExtent, value);
+            exp = new ConstantExpressionAst(s_blankExtent, value);
         }
         else if (value is IDictionary<string, object?> dict)
         {
@@ -43,17 +43,17 @@ internal static class AstHelper
         else
         {
             exp = new StringConstantExpressionAst(
-                _blankExtent,
+                s_blankExtent,
                 value.ToString() ?? "",
                 StringConstantType.SingleQuoted);
         }
 
         return new(
-            _blankExtent,
+            s_blankExtent,
             new CommandBaseAst[]
             {
                 new CommandExpressionAst(
-                    _blankExtent,
+                    s_blankExtent,
                     exp,
                     null
                 )
@@ -80,9 +80,9 @@ internal static class AstHelper
         )
         */
         ArrayExpressionAst functionsArray = new(
-            _blankExtent,
+            s_blankExtent,
             new(
-                _blankExtent,
+                s_blankExtent,
                 functions.Select(f => AstHelper.CreateSingleExpressionPipeline(f)),
                 null
             )
@@ -102,55 +102,55 @@ internal static class AstHelper
         */
 
         InvokeMemberExpressionAst parseInput = new(
-            _blankExtent,
+            s_blankExtent,
             new TypeExpressionAst(
-                _blankExtent,
-                new TypeName(_blankExtent, typeof(Parser).FullName)
+                s_blankExtent,
+                new TypeName(s_blankExtent, typeof(Parser).FullName)
             ),
-            new StringConstantExpressionAst(_blankExtent, "ParseInput", StringConstantType.BareWord),
+            new StringConstantExpressionAst(s_blankExtent, "ParseInput", StringConstantType.BareWord),
             new ExpressionAst[]
             {
                 new ExpandableStringExpressionAst(
-                    _blankExtent,
+                    s_blankExtent,
                     "$([string]::new(\"`n\", $_.Line))Function $($_.Name) {$($_.Value)}",
                     StringConstantType.DoubleQuoted
                 ),
                 new MemberExpressionAst(
-                    _blankExtent,
-                    new VariableExpressionAst(_blankExtent, "_", false),
-                    new StringConstantExpressionAst(_blankExtent, "Path", StringConstantType.BareWord),
+                    s_blankExtent,
+                    new VariableExpressionAst(s_blankExtent, "_", false),
+                    new StringConstantExpressionAst(s_blankExtent, "Path", StringConstantType.BareWord),
                     false
                 ),
                 new ConvertExpressionAst(
-                    _blankExtent,
+                    s_blankExtent,
                     new TypeConstraintAst(
-                        _blankExtent,
-                        new TypeName(_blankExtent, "ref")
+                        s_blankExtent,
+                        new TypeName(s_blankExtent, "ref")
                     ),
-                    new VariableExpressionAst(_blankExtent, "null", false)
+                    new VariableExpressionAst(s_blankExtent, "null", false)
                 ),
                 new ConvertExpressionAst(
-                    _blankExtent,
+                    s_blankExtent,
                     new TypeConstraintAst(
-                        _blankExtent,
-                        new TypeName(_blankExtent, "ref")
+                        s_blankExtent,
+                        new TypeName(s_blankExtent, "ref")
                     ),
-                    new VariableExpressionAst(_blankExtent, "null", false)
+                    new VariableExpressionAst(s_blankExtent, "null", false)
                 )
             },
             true,
             false
         );
         InvokeMemberExpressionAst getScriptBlock = new(
-            _blankExtent,
+            s_blankExtent,
             new ParenExpressionAst(
-                _blankExtent,
+                s_blankExtent,
                 new PipelineAst(
-                    _blankExtent,
+                    s_blankExtent,
                     new CommandBaseAst[]
                     {
                         new CommandExpressionAst(
-                            _blankExtent,
+                            s_blankExtent,
                             parseInput,
                             null
                         )
@@ -158,25 +158,25 @@ internal static class AstHelper
                     false
                 )
             ),
-            new StringConstantExpressionAst(_blankExtent, "GetScriptBlock", StringConstantType.BareWord),
+            new StringConstantExpressionAst(s_blankExtent, "GetScriptBlock", StringConstantType.BareWord),
             null,
             false,
             false
         );
 
         ScriptBlockAst foreachProcess = new(
-            _blankExtent,
+            s_blankExtent,
             null,
             null,
             null,
             new StatementBlockAst(
-                _blankExtent,
+                s_blankExtent,
                 new StatementAst[]
                 {
                     new PipelineAst(
-                        _blankExtent,
+                        s_blankExtent,
                         new CommandAst(
-                            _blankExtent,
+                            s_blankExtent,
                             new CommandElementAst[]
                             {
                                 getScriptBlock
@@ -194,20 +194,20 @@ internal static class AstHelper
         );
 
         PipelineAst funcDef = new(
-            _blankExtent,
+            s_blankExtent,
             new CommandBaseAst[]
             {
                 new CommandExpressionAst(
-                    _blankExtent,
+                    s_blankExtent,
                     functionsArray,
                     null
                 ),
                 new CommandAst(
-                    _blankExtent,
+                    s_blankExtent,
                     new CommandElementAst[]
                     {
-                        new StringConstantExpressionAst(_blankExtent, "ForEach-Object", StringConstantType.BareWord),
-                        new ScriptBlockExpressionAst(_blankExtent, foreachProcess)
+                        new StringConstantExpressionAst(s_blankExtent, "ForEach-Object", StringConstantType.BareWord),
+                        new ScriptBlockExpressionAst(s_blankExtent, foreachProcess)
                     },
                     TokenKind.Unknown,
                     null
@@ -220,15 +220,15 @@ internal static class AstHelper
         MainFunction @PSBoundParameters
         */
         PipelineAst invokeMain = new(
-            _blankExtent,
+            s_blankExtent,
             new CommandBaseAst[]
             {
                 new CommandAst(
-                    _blankExtent,
+                    s_blankExtent,
                     new CommandElementAst[]
                     {
-                        new StringConstantExpressionAst(_blankExtent, mainFunctionName, StringConstantType.BareWord),
-                        new VariableExpressionAst(_blankExtent, "PSBoundParameters", true)
+                        new StringConstantExpressionAst(s_blankExtent, mainFunctionName, StringConstantType.BareWord),
+                        new VariableExpressionAst(s_blankExtent, "PSBoundParameters", true)
                     },
                     TokenKind.Unknown,
                     null
@@ -242,11 +242,11 @@ internal static class AstHelper
         ScriptBlockAst paramAst = Parser.ParseInput(paramBlock, out var _1, out var _2);
 
         ScriptBlockAst sbkAst = new(
-            _blankExtent,
+            s_blankExtent,
             null, // using statements
             (ParamBlockAst?)paramAst.ParamBlock?.Copy(),
             new StatementBlockAst(
-                _blankExtent,
+                s_blankExtent,
                 new StatementAst[]
                 {
                     funcDef,
