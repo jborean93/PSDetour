@@ -22,8 +22,8 @@
             "command": "pwsh",
             "type": "shell",
             "args": [
-                "-Command",
-                "Import-Module ${workspaceFolder}/output/PSDetour; Import-Module ${workspaceFolder}/tools/Modules/platyPS; Update-MarkdownHelpModule ${workspaceFolder}/docs/en-US -AlphabeticParamsOrder -RefreshModulePage -UpdateInputOutput"
+                "-File",
+                "${workspaceFolder}/tools/UpdateDocs.ps1"
             ],
             "problemMatcher": [],
             "dependsOn": [

@@ -1,0 +1,16 @@
+version: 2
+updates:
+# The workflow actions are pinned to a commit with the version as a comment,
+# Dependabot updates both.
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: weekly
+  # Only propose a release once it is 7 days old so a compromised release has
+  # time to be found and pulled. Security updates are not delayed.
+  cooldown:
+    default-days: 7
+  groups:
+    github-actions:
+      patterns:
+      - '*'

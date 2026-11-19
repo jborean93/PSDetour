@@ -3,74 +3,142 @@ on:
   push:
     branches:
     - main
+    tags:
+    # A version tag also drafts its GitHub release with the signed nupkg,
+    # publishing that draft publishes to the PowerShell Gallery (publish.yml).
+    # Tag the release with the version in module/PSDetour.psd1:
+    #   VERSION_TAG="v$(sed -nE "s/^\s*ModuleVersion\s*=\s*'([^']+)'.*/\1/p" module/PSDetour.psd1)" && git tag -a "$VERSION_TAG" -m "$VERSION_TAG" && git push origin "$VERSION_TAG"
+    - 'v*'
 
   pull_request:
     branches:
     - main
+
+permissions: {}
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
   POWERSHELL_TELEMETRY_OPTOUT: 1
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
   DOTNET_NOLOGO: true
-  BUILD_CONFIGURATION: ${{ fromJSON('["Debug", "Release"]')[github.ref == 'refs/heads/main'] }}
+  BUILD_CONFIGURATION: ${{ fromJSON('["Debug", "Release"]')[github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')] }}
 
 jobs:
   build:
     name: build
+    # The native PSDetourNative.dll and Detours are compiled with MSVC.
     runs-on: windows-latest
+    permissions:
+      contents: read  # Repo checkout
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Set up .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
+      with:
+        global-json-file: global.json
+
+    - name: Build module
+      shell: pwsh
+      run: ./build.ps1 -Configuration $env:BUILD_CONFIGURATION -Task Build
+
+    - name: Capture PowerShell Module
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+      with:
+        name: PSModule
+        path: output/*.nupkg
+
+  sign:
+    name: sign
+    needs:
+    - build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: signing
     permissions:
       id-token: write  # Azure OIDC auth
       contents: read  # Repo checkout
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v6
-
-    - name: OIDC Login to Azure
-      if: ${{ env.BUILD_CONFIGURATION == 'Release' }}
-      uses: azure/login@v2
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        persist-credentials: false
 
-    - name: Build module
-      shell: pwsh
-      run: ./build.ps1 -Configuration $env:BUILD_CONFIGURATION -Task Build
-      env:
-        AZURE_TS_NAME: ${{ env.BUILD_CONFIGURATION == 'Release' && secrets.AZURE_TS_NAME || '' }}
-        AZURE_TS_PROFILE: ${{ env.BUILD_CONFIGURATION == 'Release' && secrets.AZURE_TS_PROFILE || '' }}
-        AZURE_TS_ENDPOINT: ${{ env.BUILD_CONFIGURATION == 'Release' && secrets.AZURE_TS_ENDPOINT || '' }}
-
-    - name: Capture PowerShell Module
-      uses: actions/upload-artifact@v6
+    - name: Restore Built PowerShell Module
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
       with:
         name: PSModule
+        path: unsigned
+
+    - name: OIDC Login to Azure
+      shell: pwsh
+      run: |
+        $loginParams = @{
+            ClientId = '${{ secrets.AZURE_CLIENT_ID }}'
+            TenantId = '${{ secrets.AZURE_TENANT_ID }}'
+        }
+        ./tools/AzLoginOIDC.ps1 @loginParams
+
+    - name: Sign module
+      shell: pwsh
+      run: ./build.ps1 -Task Sign -ModuleNupkg unsigned/*.nupkg
+      env:
+        AZURE_TS_NAME: ${{ secrets.AZURE_TS_NAME }}
+        AZURE_TS_PROFILE: ${{ secrets.AZURE_TS_PROFILE }}
+        AZURE_TS_ENDPOINT: ${{ secrets.AZURE_TS_ENDPOINT }}
+
+    - name: Capture Signed PowerShell Module
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+      with:
+        name: PSModuleSigned
         path: output/*.nupkg
 
   test:
     name: test
     needs:
     - build
+    - sign
+    # sign only runs for a version tag, test the unsigned build when it is skipped.
+    if: >-
+      !cancelled()
+      && needs.build.result == 'success'
+      && contains(fromJSON('["success", "skipped"]'), needs.sign.result)
+    # The tests compile a native dll with MSVC and PSDetour is Windows only.
     runs-on: windows-latest
+    permissions:
+      contents: read  # Repo checkout
     strategy:
       fail-fast: false
       matrix:
         info:
         - name: PS_7.4_x64
           psversion: '7.4.0'
-        - name: PS_7.5_x64
-          psversion: '7.5.0'
+        - name: PS_7.6_x64
+          psversion: '7.6.0'
+        - name: PS_7.7_x64
+          psversion: '7.7.0'
 
     steps:
-    - uses: actions/checkout@v6
+    - name: Check out repository
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      with:
+        persist-credentials: false
 
     - name: Restore Built PowerShell Module
-      uses: actions/download-artifact@v7
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
       with:
-        name: PSModule
+        name: ${{ needs.sign.result == 'success' && 'PSModuleSigned' || 'PSModule' }}
         path: output
+
+    - name: Set up .NET
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
+      with:
+        global-json-file: global.json
 
     - name: Run Tests
       shell: pwsh
@@ -86,22 +154,68 @@ jobs:
 
     - name: Upload Test Results
       if: always()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       with:
         name: Unit Test Results (${{ matrix.info.name }})
         path: ./output/TestResults/Pester.xml
 
     - name: Upload Coverage Results
       if: always()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
       with:
         name: Coverage Results (${{ matrix.info.name }})
-        path: ./output/TestResults/Coverage.xml
+        path: ./output/TestResults/Coverage.cobertura.xml
 
     - name: Upload Coverage to codecov
       if: always()
-      uses: codecov/codecov-action@v5
+      uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5  # v7.1.1
       with:
-        files: ./output/TestResults/Coverage.xml
+        files: ./output/TestResults/Coverage.cobertura.xml
         flags: ${{ matrix.info.name }}
         token: ${{ secrets.CODECOV_TOKEN }}
+
+  draft:
+    name: draft release
+    needs:
+    - test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Create the draft release
+      id-token: write  # Sigstore signing certificate, for the attestation
+      attestations: write  # Store the attestation
+      artifact-metadata: write  # The attestation's storage record
+
+    steps:
+    - name: Restore Signed PowerShell Module
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+      with:
+        name: PSModuleSigned
+        path: ./
+
+    # publish.yml only uploads a nupkg this attestation shows was built here from the tag.
+    - name: Attest the signed nupkg
+      uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6  # v4.2.2
+      with:
+        subject-path: '*.nupkg'
+
+    - name: Create or update the draft release
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ github.ref_name }}
+      run: |
+        if is_draft="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null)"; then
+          if [ "$is_draft" != "true" ]; then
+            echo "::error::Release $TAG is already published, its assets cannot be changed. Release a new version instead."
+            exit 1
+          fi
+
+          gh release upload "$TAG" *.nupkg --clobber --repo "$GITHUB_REPOSITORY"
+        else
+          gh release create "$TAG" *.nupkg \
+            --draft \
+            --verify-tag \
+            --title "$TAG" \
+            --generate-notes \
+            --repo "$GITHUB_REPOSITORY"
+        fi

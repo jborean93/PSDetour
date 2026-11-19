@@ -1,8 +1,10 @@
 ---
+document type: cmdlet
 external help file: PSDetour.dll-Help.xml
+HelpUri: https://github.com/jborean93/PSDetour/blob/main/docs/en-US/PSDetour/New-PSDetourHook.md
 Module Name: PSDetour
-online version: https://github.com/jborean93/PSDetour/blob/main/docs/en-US/New-PSDetourHook.md
-schema: 2.0.0
+ms.date: ''
+PlatyPS schema version: 2024-05-01
 ---
 
 # New-PSDetourHook
@@ -13,10 +15,14 @@ Create a PSDetour hook from a scriptblock.
 
 ## SYNTAX
 
+### Default (Default)
+
 ```
-New-PSDetourHook [-DllName] <String> [-MethodName] <String> [-Action] <ScriptBlock> [-Address <IntPtr>]
- [-AddressIsOffset] [<CommonParameters>]
+New-PSDetourHook [-DllName] <String> [-MethodName] <String> [-Action] <ScriptBlock>
+ [-Address <IntPtr>] [-AddressIsOffset] [<CommonParameters>]
 ```
+
+## ALIASES
 
 ## DESCRIPTION
 
@@ -95,17 +101,24 @@ Any variables that reference variables outside of the `-Action` should be prefix
 
 ```yaml
 Type: ScriptBlock
-Parameter Sets: (All)
-Aliases: ScriptBlock
-
-Required: True
-Position: 3
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+DefaultValue: None
+SupportsWildcards: false
+Aliases:
+- ScriptBlock
+ParameterSets:
+- Name: (All)
+  Position: 3
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -Address
+
 Hook the method at the address specified.
 This can be used to hook methods that are not publicly exported by name.
 The `-DllName` and `-MethodName` must still be set to provide enough metadata for the reflected method to be generated.
@@ -113,30 +126,41 @@ By default the `Address` is the offset in the current process but `-AddressIsOff
 
 ```yaml
 Type: IntPtr
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -AddressIsOffset
+
 Will automatically calculated the actual method address from the loaded Dll module specified by `-DllName` based on the `-Address` value.
 For example if `Kernel32.dll` is loaded at the address `0x0000F000` and the specified address is `-Address 0x0001`, the final method address will be `0x0000F001`.
 
 ```yaml
 Type: SwitchParameter
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -DllName
@@ -145,14 +169,19 @@ The DLL name or path where the C function to hook is defined.
 
 ```yaml
 Type: String
-Parameter Sets: (All)
-Aliases:
-
-Required: True
-Position: 1
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 1
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -MethodName
@@ -161,27 +190,41 @@ The C function name/symbol to hook.
 
 ```yaml
 Type: String
-Parameter Sets: (All)
-Aliases:
-
-Required: True
-Position: 2
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 2
+  IsRequired: true
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### CommonParameters
-This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable, -InformationAction, -InformationVariable, -OutVariable, -OutBuffer, -PipelineVariable, -Verbose, -WarningAction, and -WarningVariable. For more information, see [about_CommonParameters](http://go.microsoft.com/fwlink/?LinkID=113216).
+
+This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable,
+-InformationAction, -InformationVariable, -OutBuffer, -OutVariable, -PipelineVariable,
+-ProgressAction, -Verbose, -WarningAction, and -WarningVariable. For more information, see
+[about_CommonParameters](https://go.microsoft.com/fwlink/?LinkID=113216).
 
 ## INPUTS
 
 ### None
+
 ## OUTPUTS
 
 ### PSDetour.Commands.ScriptBlockHook
+
 An object that contains the necessary information for `Start-PSDetour` to setup the required hooks.
 
 ## NOTES
 
 ## RELATED LINKS
+
+- [about_PSDetour](./about_PSDetour.md)
+

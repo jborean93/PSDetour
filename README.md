@@ -6,12 +6,12 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/jborean93/PSDetour/blob/main/LICENSE)
 
 Hook C APIs in PowerShell as well as run PowerShell in other local processes.
-See [about_PSDetour](docs/en-US/about_PSDetour.md) for more details.
-See [PSDetour-Hooks](https://github.com/jborean93/PSDetour-Hooks) for some hooks that can be used with [Trace-PSDetourProcess](docs/en-US/Trace-PSDetourProcess.md).
+See [about_PSDetour](docs/en-US/PSDetour/about_PSDetour.md) for more details.
+See [PSDetour-Hooks](https://github.com/jborean93/PSDetour-Hooks) for some hooks that can be used with [Trace-PSDetourProcess](docs/en-US/PSDetour/Trace-PSDetourProcess.md).
 
 ## Documentation
 
-Documentation for this module and details on the cmdlets included can be found [here](docs/en-US/PSDetour.md).
+Documentation for this module and details on the cmdlets included can be found [here](docs/en-US/PSDetour/PSDetour.md).
 
 This module is highly experimental and misuse can crash the process you are hooking.
 Currently it can only target x64 based processes on Windows.
