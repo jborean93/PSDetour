@@ -1,28 +1,39 @@
 ---
-Module Name: PSDetour
-Module Guid: 117ef06b-f8fc-45ac-9af3-a1be0c82a1ce
-Download Help Link: 
+document type: module
 Help Version: 1.0.0.0
+HelpInfoUri: ''
 Locale: en-US
+Module Guid: 117ef06b-f8fc-45ac-9af3-a1be0c82a1ce
+Module Name: PSDetour
+ms.date: ''
+PlatyPS schema version: 2024-05-01
 ---
 
 # PSDetour Module
+
 ## Description
+
 Hook C functions in PowerShell using Detours. More information about this module can be found in about_PSDetour .
 
 ## PSDetour Cmdlets
+
 ### [New-PSDetourHook](New-PSDetourHook.md)
+
 Create a PSDetour hook from a scriptblock.
 
 ### [New-PSDetourSession](New-PSDetourSession.md)
+
 Creates a PSRemoting session to another process.
 
 ### [Start-PSDetour](Start-PSDetour.md)
+
 Starts a detour session.
 
 ### [Stop-PSDetour](Stop-PSDetour.md)
+
 Stops a PSDetour session and removes all active hooks.
 
 ### [Trace-PSDetourProcess](Trace-PSDetourProcess.md)
+
 Starts a PSDetour hook in either the current process or specified process and provides hook helpers for getting data back.
 

@@ -11,7 +11,7 @@ param(
     $Configuration = 'Debug',
 
     [Parameter()]
-    [ValidateSet('Build', 'Test')]
+    [ValidateSet('Build', 'Test', 'Sign')]
     [string]
     $Task = 'Build',
 
@@ -30,18 +30,24 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+if ($Task -eq 'Sign' -and -not $ModuleNupkg) {
+    throw "The Sign task requires -ModuleNupkg with the nupkg to sign"
+}
+
 . ([Path]::Combine($PSScriptRoot, "tools", "common.ps1"))
 
 $manifestPath = ([Path]::Combine($PSScriptRoot, 'manifest.psd1'))
 $Manifest = [Manifest]::new($Configuration, $PowerShellVersion, $PowerShellArch, $manifestPath)
 
 if ($ModuleNupkg) {
+    # Only the nupkg contents should be present, not a previous build.
+    Remove-Item -LiteralPath $Manifest.ReleasePath -Recurse -Force
     Write-Host "Expanding module nupkg to '$($Manifest.ReleasePath)'" -ForegroundColor Cyan
     Expand-Nupkg -Path $ModuleNupkg -DestinationPath $Manifest.ReleasePath
 }
 
 Write-Host "Installing PowerShell dependencies" -ForegroundColor Cyan
-$deps = $Task -eq 'Build' ? $Manifest.BuildRequirements : $Manifest.TestRequirements
+$deps = $Task -eq 'Test' ? $Manifest.TestRequirements : $Manifest.BuildRequirements
 $deps | Install-BuildDependencies
 
 $buildScript = [Path]::Combine($PSScriptRoot, "tools", "InvokeBuild.ps1")

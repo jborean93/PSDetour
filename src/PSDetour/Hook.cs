@@ -138,7 +138,7 @@ internal sealed class RunningHook : IDisposable
     /// The delegate that defines how dotnet marshals the native call. This
     /// delegate is generated dynamically from the input scriptblock and must
     /// be kept alive for <c>DetourMethod</c> to remain valid.
-    /// <summary>
+    /// </summary>
     public Delegate DetourDelegate { get; }
 
     /// <summary>

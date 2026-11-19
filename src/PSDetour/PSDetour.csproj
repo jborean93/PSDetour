@@ -2,13 +2,14 @@
 
   <PropertyGroup>
     <TargetFrameworks>net8.0-windows</TargetFrameworks>
-    <AssemblyName>PSDetour</AssemblyName>
-    <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <!--
+  PowerShell provides System.Management.Automation at runtime, only the
+  reference assembly is needed to compile and none of the package or its
+  dependencies end up in the published module.
+  -->
   <ItemGroup>
-    <PackageReference Include="System.Reflection.Emit" Version="4.7.0" PrivateAssets="all" />
-    <PackageReference Include="System.Management.Automation" Version="7.4.0" PrivateAssets="all" />
+    <PackageReference Include="System.Management.Automation" ExcludeAssets="runtime" PrivateAssets="all" />
   </ItemGroup>
 </Project>

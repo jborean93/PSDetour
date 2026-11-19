@@ -1,8 +1,10 @@
 ---
+document type: cmdlet
 external help file: PSDetour.dll-Help.xml
+HelpUri: https://github.com/jborean93/PSDetour/blob/main/docs/en-US/PSDetour/New-PSDetourSession.md
 Module Name: PSDetour
-online version: https://github.com/jborean93/PSDetour/blob/main/docs/en-US/New-PSDetourHook.md
-schema: 2.0.0
+ms.date: ''
+PlatyPS schema version: 2024-05-01
 ---
 
 # New-PSDetourSession
@@ -13,10 +15,14 @@ Creates a PSRemoting session to another process.
 
 ## SYNTAX
 
+### Default (Default)
+
 ```
 New-PSDetourSession [-ProcessId] <ProcessIntString[]> [-OpenTimeoutMS <Int32>]
  [-ApplicationArguments <PSPrimitiveDictionary>] [-Name <String>] [<CommonParameters>]
 ```
+
+## ALIASES
 
 ## DESCRIPTION
 
@@ -52,49 +58,67 @@ Creates a PSSession to the process with the id `1234` and runs the `$pid` comman
 ## PARAMETERS
 
 ### -ApplicationArguments
+
 Any custom arguments to set in the remote session under `$PSSenderInfo.ApplicationArguments`.
 The keys must be a string and the values can only be primitive types like integers, strings, etc.
 
 ```yaml
 Type: PSPrimitiveDictionary
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -Name
+
 Custom name to call the remote runspace.
 
 ```yaml
 Type: String
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -OpenTimeoutMS
+
 The timeout in milliseconds to wait until the session has been opened.
 
 ```yaml
 Type: Int32
-Parameter Sets: (All)
-Aliases:
-
-Required: False
-Position: Named
-Default value: None
-Accept pipeline input: False
-Accept wildcard characters: False
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: Named
+  IsRequired: false
+  ValueFromPipeline: false
+  ValueFromPipelineByPropertyName: false
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### -ProcessId
@@ -106,27 +130,38 @@ If there is none or multiple then the cmdlet will output an error.
 
 ```yaml
 Type: ProcessIntString[]
-Parameter Sets: (All)
-Aliases:
-
-Required: True
-Position: 0
-Default value: None
-Accept pipeline input: True (ByPropertyName, ByValue)
-Accept wildcard characters: False
+DefaultValue: None
+SupportsWildcards: false
+Aliases: []
+ParameterSets:
+- Name: (All)
+  Position: 0
+  IsRequired: true
+  ValueFromPipeline: true
+  ValueFromPipelineByPropertyName: true
+  ValueFromRemainingArguments: false
+DontShow: false
+AcceptedValues: []
+HelpMessage: ''
 ```
 
 ### CommonParameters
-This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable, -InformationAction, -InformationVariable, -OutVariable, -OutBuffer, -PipelineVariable, -Verbose, -WarningAction, and -WarningVariable. For more information, see [about_CommonParameters](http://go.microsoft.com/fwlink/?LinkID=113216).
+
+This cmdlet supports the common parameters: -Debug, -ErrorAction, -ErrorVariable,
+-InformationAction, -InformationVariable, -OutBuffer, -OutVariable, -PipelineVariable,
+-ProgressAction, -Verbose, -WarningAction, and -WarningVariable. For more information, see
+[about_CommonParameters](https://go.microsoft.com/fwlink/?LinkID=113216).
 
 ## INPUTS
 
 ### PSDetour.ProcessIntString[]
+
 The process can be passed in by input.
 
 ## OUTPUTS
 
 ### System.Management.Automation.Runspaces.PSSession
+
 The PSSession object that can be used with `Invoke-Command`, `Enter-PSSession`, or other PSRemoting cmdlets. Make sure to use `Remove-PSSession` to shut down the session when it's no longer needed.
 
 ## NOTES
@@ -135,3 +170,6 @@ Currently only x64 process targets are supported. ARM or x86 based processes wil
 See [Host Error Codes](https://github.com/dotnet/runtime/blob/main/docs/design/features/host-error-codes.md) for a list of return codes that may be used to debug hosting errors.
 
 ## RELATED LINKS
+
+- [about_PSDetour](./about_PSDetour.md)
+

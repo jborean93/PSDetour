@@ -1,36 +1,58 @@
-name: Publish module
+name: Publish PSDetour
 on:
   release:
     types:
     - published
 
+permissions: {}
+
 jobs:
-  build:
+  publish:
     name: publish
     if: startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
+    environment:
+      name: publish
+      url: https://www.powershellgallery.com/packages/PSDetour/${{ steps.download.outputs.version }}
     permissions:
-      contents: write  # Needed for GitHub release asset task
+      contents: read  # Download the release asset
+      attestations: read  # Verify the asset's build provenance
 
     steps:
-    - name: Download
-      uses: dawidd6/action-download-artifact@v11
-      with:
-        workflow: ci.yml
-        commit: ${{ github.sha }}
-        name: PSModule
+    - name: Download the module from the release
+      id: download
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ github.event.release.tag_name }}
+      run: |
+        gh release download "$TAG" --pattern '*.nupkg' --repo "$GITHUB_REPOSITORY"
 
-    - name: Upload nupkg as release asset
-      uses: softprops/action-gh-release@v2
-      with:
-        files: '*.nupkg'
+        # The version in the gallery URL of the environment, including any
+        # prerelease label, from PSDetour.<version>.nupkg.
+        nupkg=(PSDetour.*.nupkg)
+        version="${nupkg[0]#PSDetour.}"
+        echo "version=${version%.nupkg}" >> "$GITHUB_OUTPUT"
+
+    # Anyone with write access can add files to a release, so only publish what ci.yml built from this tag.
+    - name: Verify the nupkg was built by ci.yml from the tag
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: ${{ github.event.release.tag_name }}
+      run: |
+        for file in *.nupkg; do
+          echo "Verifying ci.yml built $file from $TAG"
+          gh attestation verify "$file" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/ci.yml" \
+            --source-ref "refs/tags/$TAG" \
+            --deny-self-hosted-runners
+        done
 
     - name: Publish to the PowerShell Gallery
-      shell: pwsh
       run: >-
-        dotnet nuget push '*.nupkg'
-        --api-key $env:PSGALLERY_TOKEN
-        --source 'https://www.powershellgallery.com/api/v2/package'
+        dotnet nuget push *.nupkg
+        --api-key "${PSGALLERY_TOKEN}"
+        --source "https://www.powershellgallery.com/api/v2/package"
         --no-symbols
       env:
         PSGALLERY_TOKEN: ${{ secrets.PSGALLERY_TOKEN }}

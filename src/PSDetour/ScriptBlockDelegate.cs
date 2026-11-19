@@ -50,6 +50,7 @@ internal class ScriptBlockDelegate
     /// <param name="host">The PSHost to un the scriptblock with.</param>
     /// <param name="usingVars">Variables that are injected into $using:.</param>
     /// <param name="state">Value to store in the $this.State var.</param>
+    /// <param name="detouredState">The contexts of every detoured method, keyed by module then method name, stored in $this.DetouredModules.</param>
     /// <param name="originalMethod">The pointer to the non-detoured method.</param>
     /// <returns>The context object.</returns>
     internal InvokeContext CreateInvokeContext(ScriptBlock action, PSHost? host, Dictionary<string, object> usingVars,

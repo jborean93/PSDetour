@@ -1,7 +1,5 @@
 using namespace System.IO
 
-#Requires -Module Pester
-
 <#
 .SYNOPSIS
 Run Pester test
@@ -11,6 +9,10 @@ The path to the tests to run
 
 .PARAMETER OutputFile
 The path to write the Pester test results to.
+
+.PARAMETER PesterVersion
+The exact Pester version to run the tests with, other versions on the module
+path are ignored.
 #>
 [CmdletBinding()]
 param (
@@ -20,10 +22,16 @@ param (
 
     [Parameter(Mandatory)]
     [String]
-    $OutputFile
+    $OutputFile,
+
+    [Parameter(Mandatory)]
+    [Version]
+    $PesterVersion
 )
 
 $ErrorActionPreference = 'Stop'
+
+Import-Module -Name Pester -RequiredVersion $PesterVersion
 
 [PSCustomObject]$PSVersionTable |
     Select-Object -Property *, @{N = 'Architecture'; E = {

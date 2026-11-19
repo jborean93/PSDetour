@@ -1,6 +1,7 @@
 using namespace System.Collections
 using namespace System.Collections.Generic
 using namespace System.IO
+using namespace System.IO.Compression
 using namespace System.Management.Automation
 using namespace System.Net
 using namespace System.Net.Http
@@ -26,10 +27,12 @@ class Manifest {
     [string]$ReleasePath
     [string]$TestPath
     [string]$TestResultsPath
+    [string]$TestSettingsPath
 
     [string]$DotnetProject
     [Hashtable[]]$BuildRequirements
     [Hashtable[]]$TestRequirements
+    [string]$PesterVersion
     [Version]$PowerShellVersion
     [Architecture]$PowerShellArch
     [string[]]$TargetFrameworks
@@ -62,6 +65,7 @@ class Manifest {
         $this.ReleasePath = [Path]::Combine($this.OutputPath, $this.Module.Name, $this.Module.Version)
         $this.TestPath = [Path]::Combine($this.RepositoryPath, "tests")
         $this.TestResultsPath = [Path]::Combine($this.OutputPath, "TestResults")
+        $this.TestSettingsPath = [Path]::Combine($this.TestResultsPath, "settings.json")
 
         if (-not (Test-Path -LiteralPath $this.ReleasePath)) {
             New-Item -Path $this.ReleasePath -ItemType Directory -Force | Out-Null
@@ -88,6 +92,7 @@ class Manifest {
             $pesterReq
             $raw.TestRequirements
         )
+        $this.PesterVersion = $raw.PesterVersion
 
         if ($PowerShellVersion.Major -lt 6) {
             $this.PowerShellVersion = "5.1"
@@ -212,7 +217,25 @@ function Assert-ModuleFast {
         return
     }
 
-    & ([scriptblock]::Create((Invoke-WebRequest -Uri 'bit.ly/modulefast'))) -Release $Version
+    $ProgressPreference = 'Ignore'
+
+    $attempt = 0
+    while ($true) {
+        try {
+            $code = Invoke-WebRequest -Uri 'bit.ly/modulefast'
+            break
+        }
+        catch {
+            if ($attempt -ge 2) {
+                throw "Failed to download bootstrap code for $moduleName after 3 attempts. Error: $_"
+            }
+
+            Write-Warning "Failed to download bootstrap code for $moduleName, attempt $($attempt + 1) of 3. Error: $_"
+            $attempt++
+        }
+    }
+
+    & ([scriptblock]::Create($code)) -Release $Version
 }
 
 function Assert-PowerShell {
@@ -409,105 +432,52 @@ function Install-BuildDependencies {
     )
 
     begin {
-        $modules = [List[IDictionary]]::new()
+        $specifications = [List[string]]::new()
+        $modulePaths = [List[string]]::new()
         $modulePath = [Path]::Combine($PSScriptRoot, "..", "output", "Modules")
     }
     process {
         foreach ($dep in $Requirements) {
-            $currentModPath = [Path]::Combine($modulePath, $dep.ModuleName)
-            if (Test-Path -LiteralPath $currentModPath) {
-                Import-Module -Name $currentModPath
+            # A requirement can name the PowerShell version it needs, it is
+            # left out on an older host instead of failing the import.
+            if ($dep.PowerShellVersion -and $PSVersionTable.PSVersion -lt [Version]$dep.PowerShellVersion) {
+                Write-Warning "Skipping the module $($dep.ModuleName), it needs PowerShell $($dep.PowerShellVersion) or newer"
                 continue
             }
-            $modules.Add($dep)
+
+            $currentModPath = [Path]::Combine($modulePath, $dep.ModuleName)
+            if (-not (Test-Path -LiteralPath $currentModPath)) {
+                # ModuleFast specification strings, a RequiredVersion with a
+                # prerelease label cannot be given as a hashtable.
+                $specifications.Add($dep.RequiredVersion ?
+                    "$($dep.ModuleName):[$($dep.RequiredVersion)]" :
+                    "$($dep.ModuleName)>=$($dep.ModuleVersion)")
+            }
+            $modulePaths.Add($currentModPath)
         }
     }
     end {
-        if (-not $modules) {
-            return
+        if ($specifications) {
+            Assert-ModuleFast -Version v0.6.1
+
+            $installParams = @{
+                Specification = $specifications
+                Destination = $modulePath
+                DestinationOnly = $true
+                NoPSModulePathUpdate = $true
+                NoProfileUpdate = $true
+                Update = $true
+            }
+            if (-not (Test-Path -LiteralPath $installParams.Destination)) {
+                New-Item -Path $installParams.Destination -ItemType Directory -Force | Out-Null
+            }
+            Install-ModuleFast @installParams
         }
 
-        Assert-ModuleFast -Version v0.6.0
-
-        $installParams = @{
-            ModulesToInstall = $modules
-            Destination = $modulePath
-            DestinationOnly = $true
-            NoPSModulePathUpdate = $true
-            NoProfileUpdate = $true
-            Update = $true
+        foreach ($path in $modulePaths) {
+            Import-Module -Name $path
         }
-        if (-not (Test-Path -LiteralPath $installParams.Destination)) {
-            New-Item -Path $installParams.Destination -ItemType Directory -Force | Out-Null
-        }
-        Install-ModuleFast @installParams
-
-        Get-ChildItem -LiteralPath $modulePath -Directory |
-            ForEach-Object { Import-Module -Name $_.FullName }
     }
-}
-
-function Format-CoverageInfo {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory)]
-        [string]
-        $Path
-    )
-
-    $coverageInfo = Get-Content -LiteralPath $Path | ConvertFrom-Json
-
-    $s = $coverageInfo.summary
-    [PSCustomObject]@{
-        GeneratedOn = $s.generatedon
-        Parser = $s.parser
-        Assemblies = $s.assemblies
-        Classes = $s.classes
-        Files = $s.files
-        LineCoverage = "$($s.linecoverage)% ($($s.coveredlines) of $($s.coverablelines))"
-        CoveredLines = $s.coveredlines
-        UncoveredLines = $s.uncoveredlines
-        CoverableLines = $s.coverablelines
-        TotalLines = $s.totallines
-        BranchCoverage = "$($s.branchcoverage)% ($($s.coveredbranches) of $($s.totalbranches))"
-        CoveredBranches = $s.coveredbranches
-        TotalsBranches = $s.totalbranches
-        MethodCoverage = "$($s.methodcoverage)% ($($s.coveredmethods) of $($s.totalmethods))"
-        CoveredMethods = $s.coveredmethods
-        TotalMethods = $s.totalmethods
-    } | Format-List
-
-    $coverageInfo.coverage.assemblies |
-        ForEach-Object {
-            @{ Bold = $true; Value = $_ }
-            $_.classesinassembly | ForEach-Object { @{ Bold = $false; Value = $_ } }
-        } |
-        ForEach-Object {
-            $bold = $_.Bold
-            $v = $_.Value
-
-            $table = [PSCustomObject]@{
-                Name = $v.name
-                Line = "$($v.coveredlines) / $($v.coverablelines)"
-                LPercent = "$($v.coverage)%"
-                Branch = "$($v.coveredbranches) / $($v.totalbranches)"
-                BPercent = "$($v.branchcoverage)%"
-                Method = "$($v.coveredmethods) / $($v.totalmethods)"
-                MPercent = "$($v.methodcoverage)%"
-            }
-            $table.PSObject.Properties | ForEach-Object {
-                # Fixes up entries there there was no value set
-                if ($_.Name.EndsWith('Percent') -and $_.Value -eq '%') {
-                    $_.Value = "0%"
-                }
-
-                if ($bold) {
-                    $_.Value = "$([char]27)[93;1m$($_.Value)$([char]27)[0m"
-                }
-            }
-
-            $table
-        } | Format-Table
 }
 
 # Defined in a separate module to separate the scopes so that
