@@ -1,18 +1,18 @@
-using PSDetour.Native;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using PSDetour.Native;
 
 namespace PSDetour;
 
 public static class Hook
 {
-    private static List<RunningHook> RunningHooks = new();
+    private static readonly List<RunningHook> s_runningHooks = new();
 
     public static void Start(IEnumerable<DetourHook> hooks)
     {
-        if (RunningHooks.Count > 0)
+        if (s_runningHooks.Count > 0)
         {
             throw new Exception("Already in transaction");
         }
@@ -57,7 +57,7 @@ public static class Hook
             moduleContexts[hook.MethodName] = runningHook.InvokeContext;
 
             runningHook.Attach();
-            RunningHooks.Add(runningHook);
+            s_runningHooks.Add(runningHook);
         }
     }
 
@@ -68,18 +68,18 @@ public static class Hook
         {
             Detour.DetourUpdateThread(Kernel32.GetCurrentThread());
 
-            foreach (RunningHook hook in RunningHooks)
+            foreach (RunningHook hook in s_runningHooks)
             {
                 hook.Detach();
             }
         }
 
-        foreach (RunningHook hook in RunningHooks)
+        foreach (RunningHook hook in s_runningHooks)
         {
             hook.Dispose();
         }
 
-        RunningHooks.Clear();
+        s_runningHooks.Clear();
     }
 }
 

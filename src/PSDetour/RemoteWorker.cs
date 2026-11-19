@@ -1,8 +1,8 @@
-using Microsoft.Win32.SafeHandles;
 using System;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace PSDetour;
 

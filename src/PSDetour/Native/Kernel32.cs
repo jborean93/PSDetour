@@ -1,8 +1,8 @@
-using Microsoft.Win32.SafeHandles;
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 namespace PSDetour.Native;
 
@@ -222,7 +222,7 @@ internal static class Kernel32
     }
 
     [DllImport("Kernel32.dll", EntryPoint = "WriteProcessMemory", SetLastError = true)]
-    private unsafe static extern bool NativeWriteProcessMemory(
+    private static extern unsafe bool NativeWriteProcessMemory(
         SafeProcessHandle hProcess,
         IntPtr lpBaseAddress,
         byte* lpBuffer,

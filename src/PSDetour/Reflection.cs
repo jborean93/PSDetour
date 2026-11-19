@@ -13,30 +13,30 @@ namespace PSDetour;
 
 internal static class ReflectionInfo
 {
-    private static ModuleBuilder? _builder = null;
-    private static ConstructorInfo? _marshalAsCtor = null;
-    private static ConstructorInfo? _sbkAstCtor = null;
-    private static ConstructorInfo? _sbkInvokeContextCtor = null;
-    private static FieldInfo? _ipcNamedPipeServerEnabledField = null;
-    private static MethodInfo? _addrOfPinnedObjFunc = null;
-    private static MethodInfo? _cmdletGetContext = null;
-    private static MethodInfo? _createIPCNamedPipeServerFunc = null;
-    private static MethodInfo? _errorRecordFromPSObject = null;
-    private static MethodInfo? _getDelegateForFunc = null;
-    private static MethodInfo? _getOriginalMethodFunc = null;
-    private static MethodInfo? _informationRecordFromPSObject = null;
-    private static MethodInfo? _runServerModeFunc = null;
-    private static MethodInfo? _getLastSystemErrorFunc = null;
-    private static MethodInfo? _sbkSetInvokeLastErrorFunc = null;
-    private static MethodInfo? _sbkToPwshConverterType = null;
-    private static MethodInfo? _sbkWrapInvokeFunc = null;
-    private static MethodInfo? _sbkWrapInvokeVoidFunc = null;
+    private static ModuleBuilder? s_builder = null;
+    private static ConstructorInfo? s_marshalAsCtor = null;
+    private static ConstructorInfo? s_sbkAstCtor = null;
+    private static ConstructorInfo? s_sbkInvokeContextCtor = null;
+    private static FieldInfo? s_ipcNamedPipeServerEnabledField = null;
+    private static MethodInfo? s_addrOfPinnedObjFunc = null;
+    private static MethodInfo? s_cmdletGetContext = null;
+    private static MethodInfo? s_createIPCNamedPipeServerFunc = null;
+    private static MethodInfo? s_errorRecordFromPSObject = null;
+    private static MethodInfo? s_getDelegateForFunc = null;
+    private static MethodInfo? s_getOriginalMethodFunc = null;
+    private static MethodInfo? s_informationRecordFromPSObject = null;
+    private static MethodInfo? s_runServerModeFunc = null;
+    private static MethodInfo? s_getLastSystemErrorFunc = null;
+    private static MethodInfo? s_sbkSetInvokeLastErrorFunc = null;
+    private static MethodInfo? s_sbkToPwshConverterType = null;
+    private static MethodInfo? s_sbkWrapInvokeFunc = null;
+    private static MethodInfo? s_sbkWrapInvokeVoidFunc = null;
 
     public static ModuleBuilder Module
     {
         get
         {
-            if (_builder == null)
+            if (s_builder == null)
             {
                 const string assemblyName = "PSDetour.Dynamic";
                 AssemblyBuilder builder = AssemblyBuilder.DefineDynamicAssembly(
@@ -49,10 +49,10 @@ internal static class ReflectionInfo
                 );
                 builder.SetCustomAttribute(ignoresAccessChecksTo);
 
-                _builder = builder.DefineDynamicModule(assemblyName);
+                s_builder = builder.DefineDynamicModule(assemblyName);
             }
 
-            return _builder;
+            return s_builder;
         }
     }
 
@@ -60,14 +60,14 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_marshalAsCtor == null)
+            if (s_marshalAsCtor == null)
             {
-                _marshalAsCtor = typeof(MarshalAsAttribute).GetConstructor(
+                s_marshalAsCtor = typeof(MarshalAsAttribute).GetConstructor(
                     BindingFlags.Public | BindingFlags.Instance,
                     new[] { typeof(UnmanagedType) })!;
             }
 
-            return _marshalAsCtor;
+            return s_marshalAsCtor;
         }
     }
 
@@ -75,11 +75,11 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_sbkAstCtor == null)
+            if (s_sbkAstCtor == null)
             {
                 Type paramMetaProviderType = typeof(FunctionDefinitionAst).Assembly.GetType(
                     "System.Management.Automation.Language.IParameterMetadataProvider")!;
-                _sbkAstCtor = typeof(ScriptBlock).GetConstructor(
+                s_sbkAstCtor = typeof(ScriptBlock).GetConstructor(
                     BindingFlags.NonPublic | BindingFlags.Instance,
                     new[] {
                         paramMetaProviderType,
@@ -87,7 +87,7 @@ internal static class ReflectionInfo
                     })!;
             }
 
-            return _sbkAstCtor;
+            return s_sbkAstCtor;
         }
     }
 
@@ -95,9 +95,9 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_sbkInvokeContextCtor == null)
+            if (s_sbkInvokeContextCtor == null)
             {
-                _sbkInvokeContextCtor = typeof(ScriptBlockInvokeContext).GetConstructor(
+                s_sbkInvokeContextCtor = typeof(ScriptBlockInvokeContext).GetConstructor(
                     BindingFlags.NonPublic | BindingFlags.Instance,
                     new[] {
                         typeof(ScriptBlock),
@@ -109,7 +109,7 @@ internal static class ReflectionInfo
                     })!;
             }
 
-            return _sbkInvokeContextCtor;
+            return s_sbkInvokeContextCtor;
         }
     }
 
@@ -117,14 +117,14 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_ipcNamedPipeServerEnabledField == null)
+            if (s_ipcNamedPipeServerEnabledField == null)
             {
-                _ipcNamedPipeServerEnabledField = typeof(RemoteSessionNamedPipeServer).GetField(
+                s_ipcNamedPipeServerEnabledField = typeof(RemoteSessionNamedPipeServer).GetField(
                     "IPCNamedPipeServerEnabled",
                     BindingFlags.NonPublic | BindingFlags.Static)!;
             }
 
-            return _ipcNamedPipeServerEnabledField;
+            return s_ipcNamedPipeServerEnabledField;
         }
     }
 
@@ -132,14 +132,14 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_addrOfPinnedObjFunc == null)
+            if (s_addrOfPinnedObjFunc == null)
             {
-                _addrOfPinnedObjFunc = typeof(GCHandle).GetMethod(
+                s_addrOfPinnedObjFunc = typeof(GCHandle).GetMethod(
                     "AddrOfPinnedObject",
                     Array.Empty<Type>())!;
             }
 
-            return _addrOfPinnedObjFunc;
+            return s_addrOfPinnedObjFunc;
         }
     }
 
@@ -147,15 +147,15 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_cmdletGetContext == null)
+            if (s_cmdletGetContext == null)
             {
-                _cmdletGetContext = typeof(PSCmdlet).GetMethod(
+                s_cmdletGetContext = typeof(PSCmdlet).GetMethod(
                     "get_Context",
                     BindingFlags.NonPublic | BindingFlags.Instance,
                     Array.Empty<Type>())!;
             }
 
-            return _cmdletGetContext;
+            return s_cmdletGetContext;
         }
     }
 
@@ -163,15 +163,15 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_createIPCNamedPipeServerFunc == null)
+            if (s_createIPCNamedPipeServerFunc == null)
             {
-                _createIPCNamedPipeServerFunc = typeof(RemoteSessionNamedPipeServer).GetMethod(
+                s_createIPCNamedPipeServerFunc = typeof(RemoteSessionNamedPipeServer).GetMethod(
                     "CreateIPCNamedPipeServerSingleton",
                     BindingFlags.NonPublic | BindingFlags.Static,
                     Array.Empty<Type>())!;
             }
 
-            return _createIPCNamedPipeServerFunc;
+            return s_createIPCNamedPipeServerFunc;
         }
     }
 
@@ -179,15 +179,15 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_errorRecordFromPSObject == null)
+            if (s_errorRecordFromPSObject == null)
             {
-                _errorRecordFromPSObject = typeof(ErrorRecord).GetMethod(
+                s_errorRecordFromPSObject = typeof(ErrorRecord).GetMethod(
                     "FromPSObjectForRemoting",
                     BindingFlags.NonPublic | BindingFlags.Static,
                     new[] { typeof(PSObject) })!;
             }
 
-            return _errorRecordFromPSObject;
+            return s_errorRecordFromPSObject;
         }
     }
 
@@ -195,14 +195,14 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_getDelegateForFunc == null)
+            if (s_getDelegateForFunc == null)
             {
-                _getDelegateForFunc = typeof(Marshal).GetMethod(
+                s_getDelegateForFunc = typeof(Marshal).GetMethod(
                     "GetDelegateForFunctionPointer",
                     new[] { typeof(IntPtr) })!;
             }
 
-            return _getDelegateForFunc;
+            return s_getDelegateForFunc;
         }
     }
 
@@ -210,15 +210,15 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_getOriginalMethodFunc == null)
+            if (s_getOriginalMethodFunc == null)
             {
-                _getOriginalMethodFunc = typeof(InvokeContext).GetMethod(
+                s_getOriginalMethodFunc = typeof(InvokeContext).GetMethod(
                     "get_OriginalMethod",
                     BindingFlags.NonPublic | BindingFlags.Instance,
                     Array.Empty<Type>())!;
             }
 
-            return _getOriginalMethodFunc;
+            return s_getOriginalMethodFunc;
         }
     }
 
@@ -226,15 +226,15 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_informationRecordFromPSObject == null)
+            if (s_informationRecordFromPSObject == null)
             {
-                _informationRecordFromPSObject = typeof(InformationRecord).GetMethod(
+                s_informationRecordFromPSObject = typeof(InformationRecord).GetMethod(
                     "FromPSObjectForRemoting",
                     BindingFlags.NonPublic | BindingFlags.Static,
                     new[] { typeof(PSObject) })!;
             }
 
-            return _informationRecordFromPSObject;
+            return s_informationRecordFromPSObject;
         }
     }
 
@@ -242,15 +242,15 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_runServerModeFunc == null)
+            if (s_runServerModeFunc == null)
             {
-                _runServerModeFunc = typeof(RemoteSessionNamedPipeServer).GetMethod(
+                s_runServerModeFunc = typeof(RemoteSessionNamedPipeServer).GetMethod(
                     "RunServerMode",
                     BindingFlags.NonPublic | BindingFlags.Static,
                     new[] { typeof(string) })!;
             }
 
-            return _runServerModeFunc;
+            return s_runServerModeFunc;
         }
     }
 
@@ -258,15 +258,15 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_sbkSetInvokeLastErrorFunc == null)
+            if (s_sbkSetInvokeLastErrorFunc == null)
             {
-                _sbkSetInvokeLastErrorFunc = typeof(ScriptBlockInvokeContext).GetMethod(
+                s_sbkSetInvokeLastErrorFunc = typeof(ScriptBlockInvokeContext).GetMethod(
                     nameof(ScriptBlockInvokeContext.SetInvokeLastError),
                     BindingFlags.Instance | BindingFlags.NonPublic,
                     new[] { typeof(int) })!;
             }
 
-            return _sbkSetInvokeLastErrorFunc;
+            return s_sbkSetInvokeLastErrorFunc;
         }
     }
 
@@ -274,15 +274,15 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_sbkWrapInvokeFunc == null)
+            if (s_sbkWrapInvokeFunc == null)
             {
-                _sbkWrapInvokeFunc = typeof(ScriptBlockInvokeContext).GetMethod(
+                s_sbkWrapInvokeFunc = typeof(ScriptBlockInvokeContext).GetMethod(
                     nameof(ScriptBlockInvokeContext.WrapInvoke),
                     BindingFlags.NonPublic | BindingFlags.Static,
                     new[] { typeof(ScriptBlockInvokeContext), typeof(object[]) })!;
             }
 
-            return _sbkWrapInvokeFunc;
+            return s_sbkWrapInvokeFunc;
         }
     }
 
@@ -290,15 +290,15 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_sbkWrapInvokeVoidFunc == null)
+            if (s_sbkWrapInvokeVoidFunc == null)
             {
-                _sbkWrapInvokeVoidFunc = typeof(ScriptBlockInvokeContext).GetMethod(
+                s_sbkWrapInvokeVoidFunc = typeof(ScriptBlockInvokeContext).GetMethod(
                     nameof(ScriptBlockInvokeContext.WrapInvokeVoid),
                     BindingFlags.NonPublic | BindingFlags.Static,
                     new[] { typeof(ScriptBlockInvokeContext), typeof(object[]) })!;
             }
 
-            return _sbkWrapInvokeVoidFunc;
+            return s_sbkWrapInvokeVoidFunc;
         }
     }
 
@@ -306,20 +306,20 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_sbkToPwshConverterType == null)
+            if (s_sbkToPwshConverterType == null)
             {
                 Type actualType = typeof(PSObject).Assembly.GetType(
                     "System.Management.Automation.ScriptBlockToPowerShellConverter", true)!;
                 Type contextType = typeof(PSObject).Assembly.GetType(
                     "System.Management.Automation.ExecutionContext", true)!;
 
-                _sbkToPwshConverterType = actualType.GetMethod(
+                s_sbkToPwshConverterType = actualType.GetMethod(
                     "GetUsingValuesAsDictionary",
                     BindingFlags.NonPublic | BindingFlags.Static,
                     new[] { typeof(ScriptBlock), typeof(bool), contextType, typeof(Dictionary<string, object>) })!;
             }
 
-            return _sbkToPwshConverterType;
+            return s_sbkToPwshConverterType;
         }
     }
 
@@ -327,15 +327,15 @@ internal static class ReflectionInfo
     {
         get
         {
-            if (_getLastSystemErrorFunc == null)
+            if (s_getLastSystemErrorFunc == null)
             {
-                _getLastSystemErrorFunc = typeof(Marshal).GetMethod(
+                s_getLastSystemErrorFunc = typeof(Marshal).GetMethod(
                     nameof(Marshal.GetLastSystemError),
                     BindingFlags.Static | BindingFlags.Public,
                     Array.Empty<Type>())!;
             }
 
-            return _getLastSystemErrorFunc;
+            return s_getLastSystemErrorFunc;
         }
     }
 }

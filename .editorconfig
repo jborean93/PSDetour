@@ -1,0 +1,59 @@
+root = true
+
+[*]
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.cs]
+csharp_style_namespace_declarations = file_scoped
+csharp_using_directive_placement = outside_namespace
+dotnet_sort_system_directives_first = true
+
+# Constants are implicitly static, leave their names alone.
+dotnet_naming_rule.constants.symbols = constants
+dotnet_naming_rule.constants.style = any_name
+dotnet_naming_rule.constants.severity = none
+dotnet_naming_symbols.constants.applicable_kinds = field
+dotnet_naming_symbols.constants.applicable_accessibilities = *
+dotnet_naming_symbols.constants.required_modifiers = const
+dotnet_naming_style.any_name.capitalization = pascal_case
+
+# Private static fields use s_camelCase.
+dotnet_naming_rule.private_static_fields.symbols = private_static_fields
+dotnet_naming_rule.private_static_fields.style = s_camel
+dotnet_naming_rule.private_static_fields.severity = warning
+dotnet_naming_symbols.private_static_fields.applicable_kinds = field
+dotnet_naming_symbols.private_static_fields.applicable_accessibilities = private
+dotnet_naming_symbols.private_static_fields.required_modifiers = static
+dotnet_naming_style.s_camel.required_prefix = s_
+dotnet_naming_style.s_camel.capitalization = camel_case
+
+# Private instance fields use _camelCase.
+dotnet_naming_rule.private_fields.symbols = private_fields
+dotnet_naming_rule.private_fields.style = _camel
+dotnet_naming_rule.private_fields.severity = warning
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style._camel.required_prefix = _
+dotnet_naming_style._camel.capitalization = camel_case
+
+dotnet_diagnostic.IDE0005.severity = warning  # unnecessary using
+dotnet_diagnostic.IDE0035.severity = warning  # unreachable code
+dotnet_diagnostic.IDE0036.severity = warning  # modifier order
+dotnet_diagnostic.IDE0040.severity = warning  # explicit accessibility modifiers
+dotnet_diagnostic.IDE0044.severity = warning  # make field readonly
+dotnet_diagnostic.IDE0051.severity = warning  # unused private member
+dotnet_diagnostic.IDE0052.severity = warning  # unread private member
+dotnet_diagnostic.IDE0055.severity = warning  # formatting
+dotnet_diagnostic.IDE0059.severity = warning  # unnecessary assignment
+dotnet_diagnostic.IDE0060.severity = warning  # unused parameter
+dotnet_diagnostic.IDE0065.severity = warning  # using placement
+dotnet_diagnostic.IDE0100.severity = warning  # redundant equality
+dotnet_diagnostic.IDE0110.severity = warning  # unnecessary discard
+dotnet_diagnostic.IDE0161.severity = warning  # file-scoped namespace
+dotnet_diagnostic.IDE1006.severity = warning  # naming
+
+[*.{yml,yaml,xml,csproj,props,targets,slnx}]
+indent_size = 2

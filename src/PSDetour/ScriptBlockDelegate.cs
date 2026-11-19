@@ -22,27 +22,27 @@ internal class ScriptBlockDelegate
     /// also contains some static fields for the hook manager to store further
     /// state about the hook itself.
     /// </summary>
-    private Type InvokeType;
+    private readonly Type _invokeType;
 
     /// <summary>
     /// The type that is used for the $this variable during the hook
     /// invocation. It currently only exposes the Invoke method that can be
     /// used by the hook to call the actual method it is hooking.
     /// </summary>
-    private Type ContextType;
+    private readonly Type _contextType;
 
     /// <summary>
     /// The type that represents a dotnet delegate that is used by dotnet to
     /// marshal the data crossing the boundaries between managed and unmanaged
     /// code.
     /// </summary>
-    private Type DelegateType;
+    private readonly Type _delegateType;
 
     internal ScriptBlockDelegate(Type invokeType, Type contextType, Type delegateType)
     {
-        InvokeType = invokeType;
-        ContextType = contextType;
-        DelegateType = delegateType;
+        _invokeType = invokeType;
+        _contextType = contextType;
+        _delegateType = delegateType;
     }
 
     /// <summary>Creates a context object to use for the delegate.</summary>
@@ -56,7 +56,7 @@ internal class ScriptBlockDelegate
     internal InvokeContext CreateInvokeContext(ScriptBlock action, PSHost? host, Dictionary<string, object> usingVars,
         object? state, Dictionary<string, Dictionary<string, InvokeContext>> detouredState, GCHandle originalMethod)
     {
-        return (ScriptBlockInvokeContext)Activator.CreateInstance(ContextType, new object?[]
+        return (ScriptBlockInvokeContext)Activator.CreateInstance(_contextType, new object?[]
         {
             action,
             host,
@@ -72,11 +72,11 @@ internal class ScriptBlockDelegate
     /// <returns>The dotnet delegate to use with Detours.</returns>
     internal Delegate CreateNativeDelegate(InvokeContext invokeContext)
     {
-        InvokeType
+        _invokeType
             .GetField("InvokeContext", BindingFlags.NonPublic | BindingFlags.Static)
             ?.SetValue(null, invokeContext);
 
-        return Delegate.CreateDelegate(DelegateType, null, InvokeType.GetMethod("Invoke")!);
+        return Delegate.CreateDelegate(_delegateType, null, _invokeType.GetMethod("Invoke")!);
     }
 
     /*
@@ -509,9 +509,9 @@ internal class ScriptBlockDelegate
     }
 }
 
-public class ScriptBlockInvokeContext: InvokeContext
+public class ScriptBlockInvokeContext : InvokeContext
 {
-    private static ThreadLocal<bool> InInvoke = new(() => false);
+    private static readonly ThreadLocal<bool> s_inInvoke = new(() => false);
 
     internal ScriptBlock Action { get; }
     internal PSHost? Host { get; }
@@ -597,7 +597,7 @@ public class ScriptBlockInvokeContext: InvokeContext
 
     internal static void WrapInvokeVoid(ScriptBlockInvokeContext invokeContext, object[] args)
     {
-        if (InInvoke.Value)
+        if (s_inInvoke.Value)
         {
             InvokeOriginal(invokeContext, args);
             return;
@@ -612,7 +612,7 @@ public class ScriptBlockInvokeContext: InvokeContext
 
     internal static T? WrapInvoke<T>(ScriptBlockInvokeContext invokeContext, object[] args)
     {
-        if (InInvoke.Value)
+        if (s_inInvoke.Value)
         {
             return (T?)InvokeOriginal(invokeContext, args);
         }
@@ -686,7 +686,7 @@ public class ScriptBlockInvokeContext: InvokeContext
             // If any of the steps below try and call this current hooked
             // function we want it to run the actual function and not get stuck
             // in a recursive loop.
-            InInvoke.Value = true;
+            s_inInvoke.Value = true;
 
             if (oldDefaultRunspace == null || invokeContext.UsingVariables.Count > 0)
             {
@@ -738,7 +738,7 @@ public class ScriptBlockInvokeContext: InvokeContext
             {
                 newRunspace.Dispose();
             }
-            InInvoke.Value = false;
+            s_inInvoke.Value = false;
         }
     }
 }

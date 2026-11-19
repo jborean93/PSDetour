@@ -1,5 +1,3 @@
-using Microsoft.Win32.SafeHandles;
-using PSDetour.Native;
 using System;
 using System.ComponentModel;
 using System.IO;
@@ -10,6 +8,8 @@ using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
+using PSDetour.Native;
 
 namespace PSDetour;
 

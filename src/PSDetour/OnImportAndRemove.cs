@@ -1,10 +1,10 @@
-using PSDetour.Native;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Management.Automation;
 using System.Runtime.InteropServices;
+using PSDetour.Native;
 
 namespace PSDetour;
 
